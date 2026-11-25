@@ -1,0 +1,37 @@
+{
+  "app": {
+    "name": "Relayo"
+  },
+  "login": {
+    "title": "Sign in to Relayo",
+    "login": "Login",
+    "loginRequired": "Enter your login",
+    "password": "Password",
+    "passwordRequired": "Enter your password",
+    "submit": "Sign in",
+    "invalid": "Invalid login or password",
+    "tooManyAttempts": "Too many attempts. Try again in a minute.",
+    "failed": "Could not sign in. Try again later."
+  },
+  "nav": {
+    "inbox": "Inbox",
+    "clients": "Clients",
+    "settings": "Settings"
+  },
+  "user": {
+    "logout": "Sign out",
+    "noAlias": "No alias",
+    "roles": {
+      "Admin": "Administrator",
+      "Supervisor": "Supervisor",
+      "Operator": "Operator"
+    }
+  },
+  "inbox": {
+    "empty": "No tickets yet",
+    "comingSoon": "Tickets and chats will appear here."
+  },
+  "common": {
+    "comingSoon": "Coming soon"
+  }
+}

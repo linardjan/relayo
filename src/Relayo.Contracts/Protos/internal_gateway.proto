@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+option csharp_namespace = "Relayo.Contracts.Grpc";
+
+package relayo.gateway.v1;
+
+// Вызовы публичного сервиса во внутренний.
+// Это единственный способ публичного сервиса читать и менять данные:
+// доступа к БД у него нет.
+service InternalGateway {
+  // Проверка связи. Публичный сервис вызывает её в /health/ready.
+  rpc Ping (PingRequest) returns (PingReply);
+}
+
+message PingRequest {
+  string caller = 1;
+}
+
+message PingReply {
+  string service = 1;
+  int64 server_time_unix_ms = 2;
+}

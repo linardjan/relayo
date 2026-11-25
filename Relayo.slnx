@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Relayo.Contracts/Relayo.Contracts.csproj" />
+    <Project Path="src/Relayo.Core/Relayo.Core.csproj" />
+    <Project Path="src/Relayo.Internal/Relayo.Internal.csproj" />
+    <Project Path="src/Relayo.Public/Relayo.Public.csproj" />
+    <Project Path="src/Relayo.ServiceDefaults/Relayo.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Relayo.Tests/Relayo.Tests.csproj" />
+  </Folder>
+</Solution>

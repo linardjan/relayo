@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Публичный сервис: API и realtime виджета, вебхуки мессенджеров.
+       Доступен из интернета. НЕ ссылается на Relayo.Core и не имеет доступа к БД:
+       данные получает от внутреннего сервиса по gRPC и через RabbitMQ.
+       Это проверяет тест ArchitectureTests. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Relayo.Contracts\Relayo.Contracts.csproj" />
+    <ProjectReference Include="..\Relayo.ServiceDefaults\Relayo.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.ClientFactory" />
+    <PackageReference Include="WolverineFx" />
+    <PackageReference Include="WolverineFx.RabbitMQ" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Внутренний сервис: админка, API админки, gRPC для публичного сервиса, фоновые задачи.
+       Работает только во внутренней сети. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Relayo.Contracts\Relayo.Contracts.csproj" />
+    <ProjectReference Include="..\Relayo.Core\Relayo.Core.csproj" />
+    <ProjectReference Include="..\Relayo.ServiceDefaults\Relayo.ServiceDefaults.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <PackageReference Include="WolverineFx" />
+    <PackageReference Include="WolverineFx.RabbitMQ" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+    <PackageReference Include="WolverineFx.Postgresql" />
+    <PackageReference Include="WolverineFx.EntityFrameworkCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Relayo.Tests" />
+  </ItemGroup>
+</Project>
