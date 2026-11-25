@@ -7,9 +7,35 @@ package relayo.gateway.v1;
 // Вызовы публичного сервиса во внутренний.
 // Это единственный способ публичного сервиса читать и менять данные:
 // доступа к БД у него нет.
+//
+// Ошибки передаются статусом gRPC, а в detail лежит код ошибки
+// (widget_not_found, visitor_not_found, invalid_client_token, ...).
 service InternalGateway {
   // Проверка связи. Публичный сервис вызывает её в /health/ready.
   rpc Ping (PingRequest) returns (PingReply);
+
+  // Домены всех сайтов и зеркал: для CORS.
+  rpc GetAllowedOrigins (GetAllowedOriginsRequest) returns (AllowedOrigins);
+
+  // Настройки виджета.
+  rpc GetWidget (WidgetRequest) returns (WidgetConfig);
+
+  // Найти посетителя по токену или, если разрешено, создать нового.
+  rpc StartVisitor (StartVisitorRequest) returns (VisitorSession);
+
+  // Relayo.identify(token) или setClientId()/setProduct().
+  rpc Identify (IdentifyRequest) returns (VisitorSession);
+
+  rpc SendVisitorMessage (SendVisitorMessageRequest) returns (WidgetMessage);
+
+  rpc GetVisitorHistory (VisitorRequest) returns (WidgetHistory);
+
+  // Одноразовая ссылка t.me/<bot>?start=<token> для перехода из виджета в Telegram.
+  rpc CreateTelegramLink (VisitorRequest) returns (MessengerLink);
+
+  // Обновление из webhook Telegram. Секрет из заголовка X-Telegram-Bot-Api-Secret-Token
+  // проверяет внутренний сервис: публичный сервис секретов ботов не знает.
+  rpc HandleTelegramUpdate (TelegramUpdateRequest) returns (TelegramUpdateReply);
 }
 
 message PingRequest {
@@ -19,4 +45,105 @@ message PingRequest {
 message PingReply {
   string service = 1;
   int64 server_time_unix_ms = 2;
+}
+
+message GetAllowedOriginsRequest {
+}
+
+message AllowedOrigins {
+  repeated string origins = 1;
+}
+
+message WidgetRequest {
+  string widget_id = 1;
+}
+
+message WidgetConfig {
+  string widget_id = 1;
+  string site_code = 2;
+  // signed_token | direct
+  string identification_mode = 3;
+  string title = 4;
+  string greeting = 5;
+  string accent_color = 6;
+  // right | left
+  string position = 7;
+  string default_locale = 8;
+  repeated string allowed_origins = 9;
+  int32 history_days = 10;
+  // Имя Telegram-бота без @, если он подключён к виджету.
+  string telegram_bot = 11;
+}
+
+message StartVisitorRequest {
+  string widget_id = 1;
+  string visitor_token = 2;
+  bool create_if_missing = 3;
+}
+
+message VisitorSession {
+  // Может отличаться от присланного: тогда виджет должен сохранить новый.
+  string visitor_token = 1;
+  string visitor_id = 2;
+  bool verified = 3;
+  // Пусто, пока посетитель ничего не написал и не прошёл идентификацию.
+  string client_id = 4;
+}
+
+message IdentifyRequest {
+  string widget_id = 1;
+  string visitor_token = 2;
+  oneof claim {
+    string signed_token = 3;
+    DirectIdentity direct = 4;
+  }
+}
+
+message DirectIdentity {
+  string client_id = 1;
+  string product = 2;
+  string locale = 3;
+}
+
+message SendVisitorMessageRequest {
+  string widget_id = 1;
+  string visitor_token = 2;
+  string text = 3;
+  string client_message_id = 4;
+}
+
+message VisitorRequest {
+  string widget_id = 1;
+  string visitor_token = 2;
+}
+
+message WidgetMessage {
+  string id = 1;
+  string chat_id = 2;
+  // client | operator | system
+  string author = 3;
+  // Псевдоним оператора. ФИО и логин сотрудников сюда не попадают.
+  string author_name = 4;
+  string text = 5;
+  int64 created_at_unix_ms = 6;
+  string client_message_id = 7;
+}
+
+message WidgetHistory {
+  repeated WidgetMessage messages = 1;
+}
+
+message MessengerLink {
+  string url = 1;
+  int64 expires_at_unix_ms = 2;
+}
+
+message TelegramUpdateRequest {
+  string bot_id = 1;
+  string secret = 2;
+  // Тело запроса Telegram как есть (JSON объекта Update).
+  string update_json = 3;
+}
+
+message TelegramUpdateReply {
 }

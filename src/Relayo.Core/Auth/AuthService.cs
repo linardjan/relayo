@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Relayo.Core.Data;
+using Relayo.Core.Directory;
 using Relayo.Core.Users;
 
 namespace Relayo.Core.Auth;
@@ -17,6 +18,7 @@ public sealed class AuthService(
     RelayoDbContext db,
     TokenService tokens,
     IPasswordHasher<User> passwordHasher,
+    DirectoryService directory,
     TimeProvider time)
 {
     /// <summary>
@@ -39,9 +41,12 @@ public sealed class AuthService(
         var normalized = User.NormalizeLogin(login);
         var user = await db.Users.SingleOrDefaultAsync(u => u.LoginNormalized == normalized, ct);
 
+        // Пользователь из AD: пароль проверяет сам AD (LDAP bind), в Relayo он не хранится (п. 3.1 ТЗ).
+        if (user is { Source: UserSource.ActiveDirectory, IsBlocked: false })
+            return await directory.VerifyPasswordAsync(user, password, ct) ? await IssueAsync(user, replacing: null, ct) : null;
+
         if (user is null || user.IsBlocked || user.Source != UserSource.Local || user.PasswordHash is null)
         {
-            // Вход пользователей из AD появится на этапе 2.
             passwordHasher.VerifyHashedPassword(null!, DummyHash.Value, password);
             return null;
         }

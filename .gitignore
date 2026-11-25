@@ -18,3 +18,7 @@ dist/
 # IDE / OS
 .idea/
 .DS_Store
+
+# Собранный виджет (web/widget → npm run build)
+src/Relayo.Public/wwwroot/widget/
+tools/checks/out/

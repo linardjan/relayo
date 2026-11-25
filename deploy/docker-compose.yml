@@ -1,0 +1,186 @@
+# Relayo в бою (п. 2.2 ТЗ). Подробно: docs/deployment.md.
+#
+# Профили:
+#   internal — внутренняя сеть: PostgreSQL, RabbitMQ, Relayo.Internal, админка
+#   public   — сервис для интернета: Relayo.Public (без доступа к БД)
+#   storage  — S3-хранилище для стенда (RustFS). В бою — MinIO компании, этот профиль не нужен
+#
+# Один сервер (тестовый стенд):
+#   docker compose --profile internal --profile public up -d --build
+# Два сервера (внутренняя сеть и зона для интернета):
+#   внутренний: docker compose --profile internal up -d --build
+#   публичный:  docker compose --profile public up -d --build
+#
+# Переменные — в deploy/.env (образец: deploy/.env.example). Запускать из папки deploy.
+
+name: ${COMPOSE_PROJECT_NAME:-relayo-prod}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    profiles: ["internal"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    profiles: ["internal"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    ports:
+      # Нужен публичному сервису. На одном сервере — только localhost;
+      # на двух — адрес, доступный с публичного сервера (INTERNAL_BIND).
+      - "${INTERNAL_BIND:-127.0.0.1}:${RABBITMQ_HOST_PORT:-5672}:5672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  # Отдельный пользователь RabbitMQ для публичного сервиса.
+  rabbitmq-init:
+    image: curlimages/curl:latest
+    profiles: ["internal"]
+    restart: "no"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      ADMIN: ${RABBITMQ_USER}:${RABBITMQ_PASSWORD}
+      VHOST: ${RABBITMQ_VHOST}
+      PUBLIC_USER: ${RABBITMQ_PUBLIC_USER}
+      PUBLIC_PASSWORD: ${RABBITMQ_PUBLIC_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        api=http://rabbitmq:15672/api
+        curl -sf -u "$$ADMIN" -X PUT -H 'content-type: application/json' \
+          -d "{\"password\":\"$$PUBLIC_PASSWORD\",\"tags\":\"\"}" "$$api/users/$$PUBLIC_USER"
+        curl -sf -u "$$ADMIN" -X PUT -H 'content-type: application/json' \
+          -d '{"configure":".*","write":".*","read":".*"}' "$$api/permissions/$$VHOST/$$PUBLIC_USER"
+        echo "RabbitMQ user $$PUBLIC_USER ready"
+
+  # S3 для стенда: файлы виджетов (widget_<ключ>.js). В бою — MinIO компании (S3_ENDPOINT в .env).
+  s3:
+    image: rustfs/rustfs:latest
+    profiles: ["storage"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      # Браузеры читают файлы виджетов по WIDGET_FILES_BASE_URL — обычно через прокси (docs/deployment.md).
+      - "${S3_BIND:-127.0.0.1}:${S3_HOST_PORT:-9000}:9000"
+    volumes:
+      - s3-data:/data
+
+  relayo-internal:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.internal
+    image: relayo-internal:${RELAYO_VERSION:-latest}
+    profiles: ["internal"]
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+    # Все настройки внутреннего сервиса — из .env; адреса инфраструктуры — имена контейнеров.
+    env_file: .env
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      INTERNAL_HTTP_PORT: "5100"
+      INTERNAL_GRPC_PORT: "5101"
+      # Доверяем X-Forwarded-For от nginx админки (сеть compose) и от прокси из .env.
+      TRUSTED_PROXIES: ${RELAYO_SUBNET:-172.30.0.0/24}${INTERNAL_TRUSTED_PROXIES:+,${INTERNAL_TRUSTED_PROXIES}}
+    ports:
+      # gRPC для публичного сервиса: см. комментарий у rabbitmq.
+      - "${INTERNAL_BIND:-127.0.0.1}:${INTERNAL_GRPC_HOST_PORT:-5101}:5101"
+
+  relayo-admin:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.admin
+    image: relayo-admin:${RELAYO_VERSION:-latest}
+    profiles: ["internal"]
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - relayo-internal
+    environment:
+      RELAYO_INTERNAL_URL: http://relayo-internal:5100
+    ports:
+      # Перед админкой должен стоять прокси с HTTPS (cookie входа помечены Secure).
+      - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-8080}:8080"
+
+  relayo-public:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.public
+    image: relayo-public:${RELAYO_VERSION:-latest}
+    profiles: ["public"]
+    restart: unless-stopped
+    logging: *logging
+    # Зависимости от внутреннего сервиса нет: на отдельном сервере его в этом compose нет.
+    # Пока RabbitMQ и внутренний сервис не доступны, контейнер перезапускается (restart).
+    # Только то, что нужно публичному сервису: паролей БД и ключей шифрования здесь нет.
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      PUBLIC_HTTP_PORT: "5200"
+      INTERNAL_GRPC_URL: ${INTERNAL_GRPC_URL:-http://relayo-internal:5101}
+      INTERNAL_GRPC_KEY: ${INTERNAL_GRPC_KEY}
+      RABBITMQ_HOST: ${PUBLIC_RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_PUBLIC_USER: ${RABBITMQ_PUBLIC_USER}
+      RABBITMQ_PUBLIC_PASSWORD: ${RABBITMQ_PUBLIC_PASSWORD}
+      PUBLIC_CORS_EXTRA_ORIGINS: ${PUBLIC_CORS_EXTRA_ORIGINS:-}
+      PUBLIC_RATE_LIMIT_REQUESTS_PER_MINUTE: ${PUBLIC_RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      TRUSTED_PROXIES: ${PUBLIC_TRUSTED_PROXIES:-}
+      SEQ_URL: ${SEQ_URL:-}
+      SEQ_API_KEY: ${SEQ_API_KEY:-}
+    ports:
+      - "${PUBLIC_BIND:-0.0.0.0}:${PUBLIC_PORT:-5200}:5200"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${RELAYO_SUBNET:-172.30.0.0/24}
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  s3-data:

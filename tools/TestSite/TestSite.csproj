@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Тестовый сайт для проверки виджета (п. 2.3 ТЗ). Только для разработки.
+       Заодно это пример для разработчиков сайтов: как выдавать токен клиента. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+  </ItemGroup>
+</Project>
