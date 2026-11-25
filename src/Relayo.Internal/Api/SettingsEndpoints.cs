@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Relayo.Core;
 using Relayo.Core.Auth;
 using Relayo.Core.Directory;
 using Relayo.Core.Sites;
@@ -19,7 +20,8 @@ public sealed record CreateWidgetRequest(
     string AccentColor,
     WidgetPosition Position,
     string DefaultLocale,
-    Guid? TelegramBotId);
+    Guid? TelegramBotId,
+    WidgetOptions? Options = null);
 
 public sealed record SetPasswordRequest(string Password);
 
@@ -27,9 +29,11 @@ public sealed record SetStatusRequest(OperatorStatus Status);
 
 public sealed record GroupRequest(string Name);
 
-/// <summary>Виджет вместе с кодом вставки на сайт.</summary>
-/// <summary>Виджет с кодом вставки. FileUrl — адрес опубликованного файла в S3 (если хранилище настроено).</summary>
-public sealed record WidgetSettingsDto(WidgetView Widget, string EmbedCode, string? FileUrl);
+/// <summary>
+/// Виджет с кодом вставки. FileUrl — адрес опубликованного файла в S3 (если хранилище настроено),
+/// ButtonIconUrl — адрес своей картинки кнопки для предпросмотра.
+/// </summary>
+public sealed record WidgetSettingsDto(WidgetView Widget, string EmbedCode, string? FileUrl, string? ButtonIconUrl);
 
 /// <summary>Раздел «Настройки»: только администратор (п. 3.1 ТЗ).</summary>
 internal static class SettingsEndpoints
@@ -57,10 +61,26 @@ internal static class SettingsEndpoints
         settings.MapPost("/widgets", async (CreateWidgetRequest r, SiteSettingsService service, InternalSettings config,
             WidgetPublisher publisher, CancellationToken ct) => WithEmbed(await service.CreateWidgetAsync(r.SiteId,
             new WidgetInput(r.Name, r.IdentificationMode, r.Title, r.Greeting, r.AccentColor, r.Position, r.DefaultLocale,
-                r.TelegramBotId), ct), config, publisher));
+                r.TelegramBotId, r.Options), ct), config, publisher));
         settings.MapPut("/widgets/{id:guid}", async (Guid id, WidgetInput input, SiteSettingsService service,
             InternalSettings config, WidgetPublisher publisher, CancellationToken ct) =>
             WithEmbed(await service.UpdateWidgetAsync(id, input, ct), config, publisher));
+        settings.MapDelete("/widgets/{id:guid}", async (Guid id, SiteSettingsService service, CancellationToken ct) =>
+        {
+            await service.DeleteWidgetAsync(id, ct);
+            return Results.NoContent();
+        });
+        // Своя картинка кнопки чата: multipart, поле file.
+        settings.MapPost("/widgets/{id:guid}/button-icon", async (Guid id, HttpRequest request, SiteSettingsService service,
+            InternalSettings config, WidgetPublisher publisher, CancellationToken ct) =>
+        {
+            if (!request.HasFormContentType)
+                throw new DomainException(ErrorCodes.InvalidInput, "Send the image as multipart/form-data");
+            var form = await request.ReadFormAsync(ct);
+            var file = form.Files.GetFile("file") ?? throw new DomainException(ErrorCodes.InvalidInput, "Choose an image");
+            var upload = (await FormFiles.ReadAsync(new FormFileCollection { file }, SiteSettingsService.ButtonIconMaxBytes, ct))[0];
+            return WithEmbed(await service.SetButtonIconAsync(id, upload, ct), config, publisher);
+        });
 
         // Публикация виджета в S3: новая версия, история версий, откат
         settings.MapPost("/widgets/{id:guid}/publish", async (Guid id, ClaimsPrincipal user, WidgetPublisher publisher,
@@ -96,6 +116,12 @@ internal static class SettingsEndpoints
             CancellationToken ct) => service.CreateAsync(input, ct));
         settings.MapPut("/telegram-bots/{id:guid}", (Guid id, TelegramBotInput input, TelegramBotSettingsService service,
             CancellationToken ct) => service.UpdateAsync(id, input, ct));
+        settings.MapDelete("/telegram-bots/{id:guid}", async (Guid id, TelegramBotSettingsService service,
+            CancellationToken ct) =>
+        {
+            await service.DeleteAsync(id, ct);
+            return Results.NoContent();
+        });
 
         // Пользователи
         settings.MapGet("/users", (UserAdminService service, CancellationToken ct) => service.ListAsync(ct));
@@ -144,7 +170,7 @@ internal static class SettingsEndpoints
         var embed = fileUrl is not null
             ? $"""<script async src="{fileUrl}"></script>"""
             : $"""<script async src="{config.PublicBaseUrl.TrimEnd('/')}/widget/core.js" data-relayo-widget="{widget.Id}"></script>""";
-        return new(widget, embed, fileUrl);
+        return new(widget, embed, fileUrl, widget.Options.ButtonIcon is { } icon ? publisher.WidgetFileUrl(icon) : null);
     }
 
     private static Guid UserId(ClaimsPrincipal user) => Guid.Parse(user.FindFirstValue(TokenService.SubjectClaim)!);

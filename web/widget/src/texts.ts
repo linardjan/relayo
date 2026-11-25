@@ -14,6 +14,13 @@ const en = {
   emoji: 'Emoji',
   collapse: 'Hide chat buttons',
   expand: 'Show chat buttons',
+  attach: 'Attach a file',
+  removeFile: 'Remove',
+  dropFiles: 'Drop files to attach',
+  fileTooLarge: 'Files are too large: up to {mb} MB per message.',
+  fileRejected: 'This file could not be sent.',
+  typeNotAllowed: 'This file type is not supported.',
+  file: 'File',
 }
 
 export type Texts = typeof en

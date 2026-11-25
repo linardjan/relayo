@@ -1,11 +1,13 @@
 using Microsoft.Extensions.Configuration;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using Relayo.Core.Auth;
 using Relayo.Core.Data;
+using Relayo.Core.Files;
 using Relayo.Core.Sites;
 using Relayo.Internal.Channels.Telegram;
 using Relayo.Internal.Storage;
 using Relayo.ServiceDefaults;
+using Relayo.ServiceDefaults.Redis;
 
 namespace Relayo.Internal.Configuration;
 
@@ -13,7 +15,7 @@ public sealed record InternalSettings(
     int HttpPort,
     int GrpcPort,
     string GrpcKey,
-    string PostgresConnectionString,
+    string DbConnectionString,
     RabbitSettings Rabbit,
     JwtOptions Jwt,
     DatabaseInitializerOptions Database,
@@ -23,19 +25,25 @@ public sealed record InternalSettings(
     bool SecureCookies,
     TelegramSettings Telegram,
     StorageSettings? Storage,
-    string? WidgetFilesBaseUrl)
+    string? WidgetFilesBaseUrl,
+    AttachmentLimits Attachments,
+    RedisSettings? Redis)
 {
     public static InternalSettings Load(IConfiguration configuration, bool isDevelopment)
     {
         var config = new RelayoConfig(configuration);
 
-        var postgres = new NpgsqlConnectionStringBuilder
+        var database = new SqlConnectionStringBuilder
         {
-            Host = config.Required("POSTGRES_HOST"),
-            Port = config.Int("POSTGRES_PORT", 5432),
-            Database = config.Required("POSTGRES_DB"),
-            Username = config.Required("POSTGRES_USER"),
-            Password = config.Required("POSTGRES_PASSWORD"),
+            DataSource = $"{config.Required("MSSQL_HOST")},{config.Int("MSSQL_PORT", 1433)}",
+            InitialCatalog = config.Required("MSSQL_DB"),
+            UserID = config.Required("MSSQL_USER"),
+            Password = config.Required("MSSQL_PASSWORD"),
+            // Шифрование соединения обязательно. Самоподписанный сертификат (локальный Docker) —
+            // только с MSSQL_TRUST_SERVER_CERTIFICATE=true.
+            Encrypt = SqlConnectionEncryptOption.Mandatory,
+            TrustServerCertificate = config.Bool("MSSQL_TRUST_SERVER_CERTIFICATE", false),
+            ApplicationName = "relayo-internal",
         }.ConnectionString;
 
         var jwt = new JwtOptions(
@@ -61,11 +69,11 @@ public sealed record InternalSettings(
             config.Int("INTERNAL_HTTP_PORT", 5100),
             config.Int("INTERNAL_GRPC_PORT", 5101),
             grpcKey,
-            postgres,
+            database,
             RabbitSettings.Load(config, "RABBITMQ_USER", "RABBITMQ_PASSWORD"),
             jwt,
             new DatabaseInitializerOptions(
-                postgres,
+                database,
                 config.Bool("DB_MIGRATE_ON_START", true),
                 config.Optional("BOOTSTRAP_ADMIN_LOGIN"),
                 config.Optional("BOOTSTRAP_ADMIN_PASSWORD"),
@@ -78,7 +86,10 @@ public sealed record InternalSettings(
             SecureCookies: !isDevelopment,
             LoadTelegram(config),
             LoadStorage(config),
-            config.Optional("WIDGET_FILES_BASE_URL"));
+            config.Optional("WIDGET_FILES_BASE_URL"),
+            LoadAttachments(config),
+            // Без Redis — один экземпляр: realtime операторов, лимиты и опрос Telegram в пределах процесса.
+            RedisSettings.Load(config));
 
         config.ThrowIfInvalid();
         return settings;
@@ -95,10 +106,42 @@ public sealed record InternalSettings(
             config.AddError($"S3_ENDPOINT must be an absolute URL, got '{endpoint}'");
             return null;
         }
+        var publicUrl = config.Get("S3_PUBLIC_URL", endpoint);
+        if (!Uri.TryCreate(publicUrl, UriKind.Absolute, out var publicUri))
+        {
+            config.AddError($"S3_PUBLIC_URL must be an absolute URL, got '{publicUrl}'");
+            publicUri = uri;
+        }
+        var minutes = config.Int("S3_PRESIGNED_URL_MINUTES", 15);
+        if (minutes is < 1 or > 7 * 24 * 60)
+            config.AddError("S3_PRESIGNED_URL_MINUTES must be between 1 and 10080 (7 days)");
         return new StorageSettings(uri, config.Get("S3_REGION", "us-east-1"), config.Required("S3_ACCESS_KEY"),
             config.Required("S3_SECRET_KEY"), config.Bool("S3_FORCE_PATH_STYLE", true),
-            config.Get("S3_BUCKET_WIDGETS", "relayo-widgets"));
+            config.Get("S3_BUCKET_WIDGETS", "relayo-widgets"),
+            config.Get("S3_BUCKET_ATTACHMENTS", "relayo-attachments"),
+            publicUri,
+            TimeSpan.FromMinutes(Math.Clamp(minutes, 1, 7 * 24 * 60)));
     }
+
+    /// <summary>Ограничения на вложения. Те же значения проверяет и публичный сервис.</summary>
+    internal static AttachmentLimits LoadAttachments(RelayoConfig config)
+    {
+        var megabytes = config.Int("ATTACHMENTS_MAX_SIZE_MB", 20);
+        if (megabytes is < 1 or > 100)
+            config.AddError("ATTACHMENTS_MAX_SIZE_MB must be between 1 and 100");
+        var types = config.List("ATTACHMENTS_ALLOWED_TYPES").Select(t => t.Trim().ToLowerInvariant()).ToArray();
+        if (types.Length == 0)
+            types = DefaultAttachmentTypes;
+        return new AttachmentLimits(Math.Clamp(megabytes, 1, 100) * 1024L * 1024L, types);
+    }
+
+    internal static readonly string[] DefaultAttachmentTypes =
+    [
+        "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "text/plain",
+        "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "audio/mpeg", "audio/ogg", "audio/mp4",
+    ];
 
     private static TelegramSettings LoadTelegram(RelayoConfig config)
     {

@@ -10,7 +10,7 @@ description: Запуск, перезапуск и проверка локаль
 ## 1. Что уже запущено
 
 ```bash
-docker ps --format '{{.Names}}\t{{.Status}}'                  # relayo-postgres-1, -rabbitmq-1, -redis-1, -s3-1, -seq-1, -test-site-1, -samba-1 (профиль ad)
+docker ps --format '{{.Names}}\t{{.Status}}'                  # relayo-mssql-1, -rabbitmq-1, -redis-1, -s3-1, -seq-1, -test-site-1, -samba-1 (профиль ad)
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5100/health/ready   # Internal
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5200/health/ready   # Public
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5173/               # админка (Vite)
@@ -71,6 +71,8 @@ Internal применяет миграции и DevSeed при старте; Pub
 | LDAP/AD (нужен профиль `ad` и засеянный Samba) | `node tools/checks/ldap.cjs` |
 | Агенты, группы, статусы, поля из AD | `node tools/checks/agents.cjs` |
 | Публикация виджета в S3, версии, откат | `node tools/checks/publish.cjs` |
+| Вложения (S3), настройки канала, картинка кнопки | `node tools/checks/files.cjs` |
+| Несколько экземпляров Internal + Redis (нужен второй на 5110/5111, запускать последней) | `node tools/checks/scale.cjs` |
 | Новые обращения: счётчик во вкладке, подсветка | `node tools/checks/unread.cjs` |
 | Боевой стенд `deploy/` | `node tools/checks/deploy.cjs`, `node tools/checks/stand-s3.cjs` |
 
@@ -89,10 +91,10 @@ node tools/checks/widget.cjs                                                    
 ## 6. БД, шина, логи
 
 ```bash
-docker exec relayo-postgres-1 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\dt'      # переменные — из .env
+node tools/checks/db.cjs "SELECT name FROM sys.tables ORDER BY name"        # MS SQL; подключение — из .env
 ```
 
-- Таблицы в snake_case: `tickets`, `messages` (секционирована по месяцам), `clients`, `users`, `sites`, `widgets`, `rules`, `rule_executions`, `telegram_bots` …
+- Таблицы в snake_case: `tickets`, `messages` (секционирована по месяцам), `attachments`, `clients`, `users`, `sites`, `widgets`, `rules`, `rule_executions`, `telegram_bots` …
 - Логи: файлы фоновых задач в scratchpad; структурированные логи и трассы — Seq http://localhost:8081.
 - RabbitMQ: http://localhost:15672, S3 (RustFS): http://localhost:9001, файлы виджетов — `http://localhost:9000/relayo-widgets/widget_<publicKey>.js`.
 

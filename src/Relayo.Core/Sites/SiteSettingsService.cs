@@ -40,7 +40,8 @@ public sealed record WidgetView(
     int? PublishedVersion,
     DateTimeOffset? PublishedAt,
     DateTimeOffset UpdatedAt,
-    bool HasUnpublishedChanges);
+    bool HasUnpublishedChanges,
+    WidgetOptions Options);
 
 public sealed record WidgetInput(
     string Name,
@@ -50,13 +51,18 @@ public sealed record WidgetInput(
     string AccentColor,
     WidgetPosition Position,
     string DefaultLocale,
-    Guid? TelegramBotId = null);
+    Guid? TelegramBotId = null,
+    WidgetOptions? Options = null);
 
 /// <summary>Сколько открытых тикетов идёт через каждый канал: число на плитке канала.</summary>
 public sealed record ChannelCounts(IReadOnlyDictionary<Guid, int> Widgets, IReadOnlyDictionary<Guid, int> TelegramBots);
 
 /// <summary>Настройки сайтов, ключей и виджетов (раздел «Настройки», только администратор).</summary>
-public sealed partial class SiteSettingsService(RelayoDbContext db, SecretProtector protector, TimeProvider time)
+public sealed partial class SiteSettingsService(
+    RelayoDbContext db,
+    SecretProtector protector,
+    IFileStorage storage,
+    TimeProvider time)
 {
     // ---- Сайты ----
 
@@ -147,7 +153,7 @@ public sealed partial class SiteSettingsService(RelayoDbContext db, SecretProtec
             .OrderBy(w => w.Site.Code).ThenBy(w => w.Name)
             .Select(w => new WidgetView(w.Id, w.SiteId, w.Site.Code, w.Name, w.IdentificationMode, w.Title, w.Greeting,
                 w.AccentColor, w.Position, w.DefaultLocale, w.TelegramBotId, w.CreatedAt, w.PublicKey, w.PublishedVersion,
-                w.PublishedAt, w.UpdatedAt, w.PublishedAt == null || w.UpdatedAt > w.PublishedAt))
+                w.PublishedAt, w.UpdatedAt, w.PublishedAt == null || w.UpdatedAt > w.PublishedAt, w.Options))
             .ToListAsync(ct);
 
     public async Task<WidgetView> CreateWidgetAsync(Guid siteId, WidgetInput input, CancellationToken ct)
@@ -190,8 +196,55 @@ public sealed partial class SiteSettingsService(RelayoDbContext db, SecretProtec
         if (input.TelegramBotId is { } botId && !await db.TelegramBots.AnyAsync(b => b.Id == botId, ct))
             throw new DomainException(ErrorCodes.BotNotFound, "Telegram bot not found");
 
+        // Без настроек (старые клиенты API) — прежние настройки виджета, иначе присланные.
+        // Картинку кнопки меняет только загрузка: здесь её можно лишь убрать.
+        var options = input.Options ?? widget.Options;
+        if (options.ButtonIcon is not null && options.ButtonIcon != widget.Options.ButtonIcon)
+            options = options with { ButtonIcon = widget.Options.ButtonIcon };
+        options = options.Normalize(hasTelegramBot: input.TelegramBotId is not null);
+
         widget.Configure(ValidName(input.Name), input.IdentificationMode, title, greeting, color, input.Position, locale,
-            input.TelegramBotId, time.GetUtcNow());
+            input.TelegramBotId, options, time.GetUtcNow());
+    }
+
+    /// <summary>Максимальный размер картинки кнопки: 512×512 проверяет админка, здесь — объём файла.</summary>
+    public const int ButtonIconMaxBytes = 512 * 1024;
+
+    /// <summary>
+    /// Своя картинка кнопки чата. Лежит в публичном бакете виджетов рядом со скриптом
+    /// (widget_&lt;ключ&gt;_icon_&lt;случайное&gt;.&lt;расширение&gt;): новое имя у каждой загрузки, поэтому её можно кэшировать навсегда.
+    /// </summary>
+    public async Task<WidgetView> SetButtonIconAsync(Guid widgetId, Files.FileUpload upload, CancellationToken ct)
+    {
+        var widget = await db.Widgets.SingleOrDefaultAsync(w => w.Id == widgetId, ct)
+                     ?? throw new DomainException(ErrorCodes.WidgetNotFound, "Widget not found");
+        if (!storage.IsConfigured)
+            throw new DomainException(ErrorCodes.StorageNotConfigured, "File storage (S3) is not configured");
+        if (upload.Content.Length > ButtonIconMaxBytes)
+            throw new DomainException(ErrorCodes.AttachmentTooLarge, "The image must be up to 512 KB");
+        var file = Files.AttachmentPolicy.Check([upload],
+            new Files.AttachmentLimits(ButtonIconMaxBytes, ["image/png", "image/jpeg", "image/gif", "image/webp"])).Single();
+
+        var extension = file.ContentType.Split('/')[1].Replace("jpeg", "jpg");
+        var name = $"widget_{widget.PublicKey}_icon_{WidgetKeys.Create()}.{extension}";
+        await storage.PutWidgetFileAsync(name, file.Content, "public, max-age=31536000, immutable", ct, file.ContentType);
+        widget.SetButtonIcon(name, time.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+        return (await ListWidgetsAsync(ct)).Single(w => w.Id == widget.Id);
+    }
+
+    /// <summary>
+    /// Удаляет виджет. Переписка остаётся: посетители и сообщения не удаляются. Опубликованный файл
+    /// widget_&lt;ключ&gt;.js убирается из S3, чтобы сайты перестали показывать виджет.
+    /// </summary>
+    public async Task DeleteWidgetAsync(Guid widgetId, CancellationToken ct)
+    {
+        var widget = await db.Widgets.SingleOrDefaultAsync(w => w.Id == widgetId, ct)
+                     ?? throw new DomainException(ErrorCodes.WidgetNotFound, "Widget not found");
+        if (widget.PublishedVersion is not null && storage.IsConfigured)
+            await storage.DeleteWidgetFileAsync(WidgetPublisher.FileName(widget.PublicKey), ct);
+        db.Widgets.Remove(widget);
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task<Site> FindSiteAsync(Guid siteId, CancellationToken ct) =>

@@ -227,8 +227,7 @@ public sealed class RuleEngine(
     private async Task<Ticket?> LockTicketAsync(Guid ticketId, CancellationToken ct)
     {
         // Правила одного тикета выполняются по очереди: иначе два события подряд могли бы оба отправить автоответ.
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({"rules:" + ticketId}, 0))", ct);
+        await db.LockAsync("rules:" + ticketId, ct);
         return await db.Tickets.Include(t => t.Chats).SingleOrDefaultAsync(t => t.Id == ticketId, ct);
     }
 

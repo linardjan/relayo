@@ -27,6 +27,109 @@ body,
   background: #fafafa;
 }
 
+/* Страница канала: одна форма из нескольких карточек, кнопки — под последней (как в Usedesk). */
+.channel-form > .section-card + .section-card {
+  margin-top: 16px;
+}
+
+.settings-fields {
+  max-width: 1000px;
+}
+
+.save-bar {
+  padding: 16px 0 0 240px;
+}
+
+.embed-row {
+  max-width: 1000px;
+  margin: 16px 0 0;
+}
+
+
+.code-area.ant-input {
+  background: #f5f5f5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.medium-input {
+  max-width: 520px;
+}
+
+/* Поле, которое ещё не работает: элемент и пометка рядом */
+.soon-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.soon-field > .ant-input,
+.soon-field > .ant-select,
+.soon-field > textarea {
+  width: 420px;
+  max-width: 100%;
+}
+
+.soon-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.soon-tag {
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: #8c8c8c;
+}
+
+/* Пункты виджета: тип, подпись, бот или адрес, кнопка удаления */
+.launcher-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.launcher-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Картинка кнопки виджета */
+.icon-preview {
+  width: 200px;
+  height: 200px;
+  padding: 3px;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+}
+
+.icon-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.icon-default {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 700px) {
+  .save-bar {
+    padding-left: 0;
+  }
+}
+
 /* Блок пользователя в тёмной боковой панели. */
 .sider-user {
   display: flex;
@@ -366,10 +469,64 @@ body,
 
 /* Поле ответа */
 .composer {
+  position: relative;
   margin: 0 16px 16px;
   background: #fff;
   border: 1px solid #e8e8e8;
   border-radius: 8px;
+}
+
+.composer.dragging {
+  border-color: #1677ff;
+}
+
+/* Подсказка поверх поля, пока над ним держат файлы */
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #1677ff;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1677ff;
+  pointer-events: none;
+}
+
+.composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 4px;
+}
+
+/* Вложения в сообщении */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.msg-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.msg-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-file-size {
+  color: #8c8c8c;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .composer-top {

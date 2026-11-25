@@ -17,7 +17,7 @@ public static class CoreServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddRelayoCore(
         this IServiceCollection services, JwtOptions jwt, DatabaseInitializerOptions database,
-        byte[] secretsEncryptionKey, ClientTokenOptions clientTokens)
+        byte[] secretsEncryptionKey, ClientTokenOptions clientTokens, Files.AttachmentLimits attachments)
     {
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(jwt);
@@ -31,6 +31,8 @@ public static class CoreServiceCollectionExtensions
         services.AddScoped<WidgetConversationService>();
         services.AddScoped<Channels.TelegramConversationService>();
         services.AddScoped<TicketService>();
+        services.AddSingleton(attachments);
+        services.AddScoped<Files.AttachmentService>();
         services.AddScoped<Clients.ClientService>();
         services.AddScoped<SiteSettingsService>();
         services.AddScoped<WidgetPublisher>();

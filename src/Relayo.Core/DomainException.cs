@@ -40,4 +40,8 @@ public static class ErrorCodes
     public const string WebhookRequiresHttps = "webhook_requires_https";
     public const string TelegramNotConnected = "telegram_not_connected";
     public const string WebhookForbidden = "webhook_forbidden";
+    public const string AttachmentTooLarge = "attachment_too_large";
+    public const string AttachmentTypeNotAllowed = "attachment_type_not_allowed";
+    public const string TooManyAttachments = "too_many_attachments";
+    public const string AttachmentsDisabled = "attachments_disabled";
 }

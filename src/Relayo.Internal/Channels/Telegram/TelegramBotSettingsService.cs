@@ -30,7 +30,8 @@ public sealed class TelegramBotSettingsService(
     TelegramBotApi api,
     TelegramBotTokens tokens,
     InternalSettings settings,
-    TimeProvider time)
+    TimeProvider time,
+    ILogger<TelegramBotSettingsService> logger)
 {
     public async Task<IReadOnlyList<TelegramBotView>> ListAsync(CancellationToken ct)
     {
@@ -95,6 +96,36 @@ public sealed class TelegramBotSettingsService(
         await db.SaveChangesAsync(ct);
         tokens.Invalidate(bot.Id);
         return (await ListAsync(ct)).Single(b => b.Id == bot.Id);
+    }
+
+    /// <summary>
+    /// Удаляет бота. Переписка остаётся в тикетах, но ответы в Telegram через этого бота больше не уходят:
+    /// оператор видит их только в виджете. Кнопка Telegram пропадает из виджетов после публикации.
+    /// </summary>
+    public async Task DeleteAsync(Guid botId, CancellationToken ct)
+    {
+        var bot = await db.TelegramBots.SingleOrDefaultAsync(b => b.Id == botId, ct)
+                  ?? throw new DomainException(ErrorCodes.BotNotFound, "Telegram bot not found");
+
+        if (settings.Telegram.Mode == TelegramUpdatesMode.Webhook)
+        {
+            try
+            {
+                await api.DeleteWebhookAsync(protector.Unprotect(bot.ProtectedToken), ct);
+            }
+            catch (Exception ex) when (ex is TelegramApiException or HttpRequestException or TaskCanceledException)
+            {
+                // Бот мог быть уже удалён в @BotFather: это не повод оставлять его в Relayo.
+                logger.LogWarning("Could not remove the webhook of bot {BotId}: {Error}", bot.Id, ex.Message);
+            }
+        }
+
+        var now = time.GetUtcNow();
+        foreach (var widget in await db.Widgets.Where(w => w.TelegramBotId == botId).ToListAsync(ct))
+            widget.DetachTelegramBot(now);
+        db.TelegramBots.Remove(bot);
+        await db.SaveChangesAsync(ct);
+        tokens.Invalidate(bot.Id);
     }
 
     /// <summary>

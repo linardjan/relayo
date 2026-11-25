@@ -1,5 +1,5 @@
 import { render } from 'preact'
-import { App } from './App'
+import { App, optionsOf } from './App'
 import { Controller } from './controller'
 import { styles } from './styles'
 import type { WidgetConfig } from './api'
@@ -64,11 +64,22 @@ function boot(script: HTMLScriptElement | null) {
   shadow.append(style, mount)
 
   const applyStyles = () => {
-    style.textContent = styles(controller.state.config?.accentColor ?? '#1677ff')
+    const config = controller.state.config
+    style.textContent = styles(config?.accentColor ?? '#1677ff', optionsOf(config))
   }
   applyStyles()
   controller.subscribe(applyStyles)
   render(<App controller={controller} />, mount)
+
+  // «Скрывать при клике вне области»: клик по странице сайта (не по виджету) закрывает окно чата.
+  // Клик, которым сайт открыл чат (кнопка с Relayo.open()), тоже доходит до документа: его пропускаем.
+  let openedAt = 0
+  controller.on('open', () => (openedAt = Date.now()))
+  document.addEventListener('click', (e) => {
+    if (!controller.state.open || !optionsOf(controller.state.config).hideOnOutsideClick) return
+    if (Date.now() - openedAt < 300) return
+    if (!e.composedPath().includes(host)) controller.close()
+  })
 
   for (const [method, args] of queued) {
     if (methods.includes(method)) api[method]!(...args)

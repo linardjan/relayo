@@ -5,6 +5,7 @@ using Relayo.Core.Automation;
 using Relayo.Core.Channels;
 using Relayo.Core.Clients;
 using Relayo.Core.Conversations;
+using Relayo.Core.Files;
 using Relayo.Core.Sites;
 
 namespace Relayo.Core.Data;
@@ -25,7 +26,7 @@ internal sealed class SiteKeyConfiguration : IEntityTypeConfiguration<SiteKey>
     public void Configure(EntityTypeBuilder<SiteKey> b)
     {
         b.HasKey(k => k.Id);
-        b.Property(k => k.KeyId).HasMaxLength(SiteKey.KeyIdMaxLength);
+        b.Property(k => k.KeyId).HasMaxLength(SiteKey.KeyIdMaxLength).IsCaseSensitive();
         b.HasIndex(k => k.KeyId).IsUnique();
         b.HasOne(k => k.Site).WithMany().HasForeignKey(k => k.SiteId).OnDelete(DeleteBehavior.Cascade);
     }
@@ -33,6 +34,11 @@ internal sealed class SiteKeyConfiguration : IEntityTypeConfiguration<SiteKey>
 
 internal sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
 {
+    internal static readonly JsonSerializerOptions WidgetOptionsJson = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
     public void Configure(EntityTypeBuilder<Widget> b)
     {
         b.HasKey(w => w.Id);
@@ -45,7 +51,17 @@ internal sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
         b.Property(w => w.DefaultLocale).HasMaxLength(16);
         b.HasOne(w => w.Site).WithMany().HasForeignKey(w => w.SiteId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<TelegramBot>().WithMany().HasForeignKey(w => w.TelegramBotId).OnDelete(DeleteBehavior.SetNull);
-        b.Property(w => w.PublicKey).HasMaxLength(Widget.PublicKeyLength);
+        b.Property(w => w.PublicKey).HasMaxLength(Widget.PublicKeyLength).IsCaseSensitive();
+        // Внешний вид и поведение — один документ: читается и меняется только вместе с виджетом.
+        b.Property(w => w.Options)
+            .HasColumnType("nvarchar(max)")
+            .HasConversion(
+                o => JsonSerializer.Serialize(o, WidgetOptionsJson),
+                s => JsonSerializer.Deserialize<WidgetOptions>(s, WidgetOptionsJson) ?? WidgetOptions.Default,
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<WidgetOptions>(
+                    (x, y) => JsonSerializer.Serialize(x, WidgetOptionsJson) == JsonSerializer.Serialize(y, WidgetOptionsJson),
+                    o => JsonSerializer.Serialize(o, WidgetOptionsJson).GetHashCode(),
+                    o => o));
         b.HasIndex(w => w.PublicKey).IsUnique();
         b.Ignore(w => w.HasUnpublishedChanges);
     }
@@ -57,7 +73,7 @@ internal sealed class WidgetVersionConfiguration : IEntityTypeConfiguration<Widg
     {
         b.HasKey(v => v.Id);
         b.HasIndex(v => new { v.WidgetId, v.Version }).IsUnique();
-        b.Property(v => v.SnapshotJson).HasColumnType("jsonb");
+        b.Property(v => v.SnapshotJson).HasColumnType("nvarchar(max)");
         b.Property(v => v.PublishedBy).HasMaxLength(Users.User.FullNameMaxLength);
         b.Property(v => v.Note).HasMaxLength(200);
         b.HasOne<Widget>().WithMany().HasForeignKey(v => v.WidgetId).OnDelete(DeleteBehavior.Cascade);
@@ -69,7 +85,7 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
     public void Configure(EntityTypeBuilder<Client> b)
     {
         b.HasKey(c => c.Id);
-        b.Property(c => c.ExternalClientId).HasMaxLength(Client.ExternalIdMaxLength);
+        b.Property(c => c.ExternalClientId).HasMaxLength(Client.ExternalIdMaxLength).IsCaseSensitive();
         b.Property(c => c.Locale).HasMaxLength(16);
         b.Property(c => c.DisplayName).HasMaxLength(Client.DisplayNameMaxLength);
         b.Ignore(c => c.IsAnonymous);
@@ -86,7 +102,7 @@ internal sealed class ClientIdentityConfiguration : IEntityTypeConfiguration<Cli
     {
         b.HasKey(i => i.Id);
         b.Property(i => i.Type).HasConversion<string>().HasMaxLength(16);
-        b.Property(i => i.ExternalId).HasMaxLength(ClientIdentity.ExternalIdMaxLength);
+        b.Property(i => i.ExternalId).HasMaxLength(ClientIdentity.ExternalIdMaxLength).IsCaseSensitive();
         b.Property(i => i.DisplayName).HasMaxLength(ClientIdentity.DisplayNameMaxLength);
         b.HasIndex(i => new { i.Type, i.ExternalId }).IsUnique();
         b.HasIndex(i => i.ClientId);
@@ -100,7 +116,7 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
     public void Configure(EntityTypeBuilder<Ticket> b)
     {
         b.HasKey(t => t.Id);
-        b.Property(t => t.Number).UseIdentityAlwaysColumn();
+        b.Property(t => t.Number).UseIdentityColumn();
         b.HasIndex(t => t.Number).IsUnique();
         b.Property(t => t.Status).HasConversion<string>().HasMaxLength(16);
         b.Property(t => t.LastMessagePreview).HasMaxLength(Ticket.PreviewMaxLength);
@@ -128,17 +144,34 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
     public void Configure(EntityTypeBuilder<Message> b)
     {
         // Таблица секционирована по created_at, см. миграцию и MessagePartitions.
-        b.HasKey(m => new { m.Id, m.CreatedAt });
+        // Ключ начинается с даты: так кластерный индекс растёт по порядку, а не вразброс по случайным id.
+        b.HasKey(m => new { m.CreatedAt, m.Id });
+        b.HasIndex(m => m.Id);
         b.Property(m => m.Author).HasConversion<string>().HasMaxLength(16);
         b.Property(m => m.Channel).HasConversion<string>().HasMaxLength(16);
         b.Property(m => m.Text).HasMaxLength(Message.TextMaxLength);
-        b.Property(m => m.ClientMessageId).HasMaxLength(Message.ClientMessageIdMaxLength);
+        b.Property(m => m.ClientMessageId).HasMaxLength(Message.ClientMessageIdMaxLength).IsCaseSensitive();
         b.Ignore(m => m.IsAutomated);
         b.HasIndex(m => new { m.ChatId, m.CreatedAt });
         b.HasIndex(m => new { m.VisitorIdentityId, m.CreatedAt });
         // Есть ли у сотрудника переписка (нельзя удалить учётку с историей).
         b.HasIndex(m => m.OperatorId).HasFilter("operator_id IS NOT NULL");
         b.HasOne<Chat>().WithMany().HasForeignKey(m => m.ChatId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachment>
+{
+    public void Configure(EntityTypeBuilder<Attachment> b)
+    {
+        b.HasKey(a => a.Id);
+        b.Property(a => a.Id).ValueGeneratedNever();
+        b.Property(a => a.FileName).HasMaxLength(AttachmentPolicy.FileNameMaxLength);
+        b.Property(a => a.ContentType).HasMaxLength(Attachment.ContentTypeMaxLength);
+        b.Property(a => a.StorageKey).HasMaxLength(Attachment.StorageKeyMaxLength).IsCaseSensitive();
+        b.HasIndex(a => new { a.ChatId, a.CreatedAt });
+        b.HasIndex(a => a.MessageId);
+        b.HasOne<Chat>().WithMany().HasForeignKey(a => a.ChatId).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -179,7 +212,7 @@ internal sealed class RuleConfiguration : IEntityTypeConfiguration<Rule>
         b.HasIndex(r => r.Position);
         // События, условия и действия — один документ: читаются и меняются только вместе.
         b.Property(r => r.Definition)
-            .HasColumnType("jsonb")
+            .HasColumnType("nvarchar(max)")
             .HasConversion(
                 d => JsonSerializer.Serialize(d, Json),
                 s => JsonSerializer.Deserialize<RuleDefinition>(s, Json) ?? RuleDefinition.Empty);

@@ -4,6 +4,8 @@ using Relayo.Core.Channels;
 using Relayo.Core.Data;
 using Relayo.Core.Security;
 using Relayo.Internal.Configuration;
+using Relayo.ServiceDefaults.Redis;
+using StackExchange.Redis;
 
 namespace Relayo.Internal.Channels.Telegram;
 
@@ -12,7 +14,9 @@ namespace Relayo.Internal.Channels.Telegram;
 /// <list type="bullet">
 /// <item>Webhook: при запуске регистрирует webhook всех включённых ботов (адрес мог измениться).</item>
 /// <item>Long polling: для каждого включённого бота забирает обновления сам. Новые и выключенные боты
-/// подхватываются в течение <see cref="RefreshInterval"/>.</item>
+/// подхватываются в течение <see cref="RefreshInterval"/>. Telegram отдаёт обновления только одному получателю,
+/// поэтому при нескольких экземплярах опрашивает тот, кто держит аренду в Redis; если он пропал, через
+/// <see cref="LeaseTtl"/> опрос подхватывает другой.</item>
 /// </list>
 /// </summary>
 internal sealed class TelegramUpdatesService(
@@ -21,9 +25,11 @@ internal sealed class TelegramUpdatesService(
     SecretProtector protector,
     InternalSettings settings,
     TimeProvider time,
-    ILogger<TelegramUpdatesService> logger) : BackgroundService
+    ILogger<TelegramUpdatesService> logger,
+    IConnectionMultiplexer? redis = null) : BackgroundService
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan LeaseTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -62,7 +68,12 @@ internal sealed class TelegramUpdatesService(
 
     private async Task PollAsync(CancellationToken stop)
     {
-        logger.LogInformation("Telegram updates: long polling. Use it for development only, with a single instance");
+        logger.LogInformation(redis is null
+            ? "Telegram updates: long polling (single instance). Use webhook mode in production"
+            : "Telegram updates: long polling by the instance that holds the Redis lease. Use webhook mode in production");
+        var lease = redis is null ? null : new RedisLease(redis, "telegram-polling", LeaseTtl);
+        var leader = lease is null;
+        var roleLogged = false;
         var loops = new Dictionary<Guid, (string TokenHash, CancellationTokenSource Cts, Task Task)>();
         try
         {
@@ -70,7 +81,17 @@ internal sealed class TelegramUpdatesService(
             {
                 try
                 {
-                    var bots = await LoadEnabledBotsAsync(stop);
+                    if (lease is not null)
+                    {
+                        var wasLeader = leader;
+                        leader = await IsLeaderAsync(lease, leader);
+                        if (leader != wasLeader || !roleLogged)
+                            logger.LogInformation(leader
+                                ? "This instance now polls Telegram ({Owner})"
+                                : "Another instance polls Telegram, this one stands by ({Owner})", lease.Owner);
+                        roleLogged = true;
+                    }
+                    var bots = leader ? await LoadEnabledBotsAsync(stop) : [];
                     foreach (var (id, loop) in loops.ToList())
                     {
                         if (bots.TryGetValue(id, out var current) && Hash(current.Token) == loop.TokenHash)
@@ -98,6 +119,26 @@ internal sealed class TelegramUpdatesService(
             foreach (var loop in loops.Values)
                 await loop.Cts.CancelAsync();
             await Task.WhenAll(loops.Values.Select(l => l.Task));
+            // Остановка штатная: отдаём опрос другому экземпляру сразу, не дожидаясь истечения аренды.
+            if (lease is not null && leader)
+                await lease.ReleaseAsync();
+        }
+    }
+
+    /// <summary>
+    /// Взять или продлить аренду. Если Redis недоступен, экземпляр сохраняет прежнюю роль: два опроса
+    /// одновременно Telegram не сломают (второй получит 409), а без опроса сообщения бы копились.
+    /// </summary>
+    private async Task<bool> IsLeaderAsync(RedisLease lease, bool current)
+    {
+        try
+        {
+            return await lease.TryAcquireOrRenewAsync();
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            logger.LogWarning("Could not renew the Telegram polling lease: {Error}", ex.Message);
+            return current;
         }
     }
 

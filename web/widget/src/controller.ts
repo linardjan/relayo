@@ -4,10 +4,14 @@ import { Api, WidgetApiError, type Message, type Session, type WidgetConfig } fr
 /** Ссылку обновляем заранее, пока до конца её жизни (10 минут) остаётся больше этого. */
 const LINK_REFRESH_BEFORE_MS = 3 * 60_000
 const LINK_CHECK_INTERVAL_MS = 60_000
+/** Ссылки на файлы временные (S3_PRESIGNED_URL_MINUTES): пока окно открыто, история обновляется заранее. */
+const HISTORY_REFRESH_MS = 10 * 60_000
 
 export interface ViewMessage extends Message {
   /** Сообщение отправляется или не отправилось. */
   pending?: 'sending' | 'failed'
+  /** Почему не отправилось: код ошибки сервера (attachment_too_large и т. п.). */
+  errorCode?: string
 }
 
 export interface State {
@@ -54,6 +58,9 @@ export class Controller {
   private telegramLink: { url: string; expiresAt: number } | null = null
   private telegramLinkPromise: Promise<string> | null = null
   private linkTimer: ReturnType<typeof setInterval> | null = null
+  private historyTimer: ReturnType<typeof setInterval> | null = null
+  /** Файлы неотправленных сообщений: нужны для повторной отправки. */
+  private readonly pendingFiles = new Map<string, File[]>()
 
   constructor(
     private readonly baseUrl: string,
@@ -159,6 +166,7 @@ export class Controller {
     this.sessionPromise = null
     this.telegramLink = null
     this.telegramLinkPromise = null
+    this.pendingFiles.clear()
     void this.hub?.stop()
     this.hub = null
     this.set({ messages: [], unread: 0, error: null })
@@ -212,12 +220,21 @@ export class Controller {
 
   // ---- Переписка ----
 
-  async send(text: string, retryOf?: ViewMessage): Promise<void> {
+  /** Можно ли прикладывать файлы и сколько всего байт в одном сообщении. */
+  get maxAttachmentBytes(): number {
+    const config = this.state.config
+    if (!config || config.options?.allowAttachments === false) return 0
+    // В файлах виджета, опубликованных до появления вложений, лимита нет: берём обычный, сервер всё равно проверит.
+    return config.maxAttachmentBytes ?? 20 * 1024 * 1024
+  }
+
+  async send(text: string, files: File[] = [], retryOf?: ViewMessage): Promise<void> {
     text = text.trim()
-    if (!text) return
     const clientMessageId = retryOf?.clientMessageId ?? randomId()
+    if (retryOf) files = this.pendingFiles.get(clientMessageId) ?? []
+    if (!text && files.length === 0) return
     const optimistic: ViewMessage = retryOf
-      ? { ...retryOf, pending: 'sending' }
+      ? { ...retryOf, pending: 'sending', errorCode: undefined }
       : {
           id: `local-${clientMessageId}`,
           chatId: '',
@@ -226,17 +243,20 @@ export class Controller {
           text,
           createdAt: new Date().toISOString(),
           clientMessageId,
+          attachments: files.map((f, i) => ({ id: `local-${i}`, fileName: f.name, contentType: f.type, size: f.size, url: null })),
           pending: 'sending',
         }
+    if (files.length > 0) this.pendingFiles.set(clientMessageId, files)
     this.upsertLocal(optimistic)
 
     try {
       await this.ensureSession()
-      const saved = await this.api.send(this.visitorToken!, text, clientMessageId)
+      const saved = await this.api.send(this.visitorToken!, text, clientMessageId, files)
+      this.pendingFiles.delete(clientMessageId)
       this.replaceLocal(clientMessageId, saved)
     } catch (error) {
       console.error('[Relayo] Message was not sent', error)
-      this.upsertLocal({ ...optimistic, pending: 'failed' })
+      this.upsertLocal({ ...optimistic, pending: 'failed', errorCode: error instanceof WidgetApiError ? error.code : undefined })
     }
   }
 
@@ -257,6 +277,9 @@ export class Controller {
     await this.connectHub()
     this.set({ connecting: false })
     this.startTelegramLinkRefresh()
+    this.historyTimer ??= setInterval(() => {
+      if (this.state.open && document.visibilityState === 'visible') void this.refreshHistory()
+    }, HISTORY_REFRESH_MS)
   }
 
   /** Держит наготове свежую ссылку в Telegram, пока вкладка видна. */
@@ -365,6 +388,7 @@ export class Controller {
     }
     this.set({ messages: [...this.state.messages, message] })
     this.emit('message', message)
+    if (message.author === 'operator' && this.state.config?.options?.sound === 'Beep') beep()
     if (!this.state.open && message.author !== 'client') {
       this.set({ unread: this.state.unread + 1 })
       this.emit('unreadChanged', this.state.unread)
@@ -396,6 +420,24 @@ export class Controller {
         console.error(`[Relayo] Error in "${event}" handler`, error)
       }
     })
+  }
+}
+
+/** Короткий сигнал о новом сообщении, без загрузки звуковых файлов. */
+function beep(): void {
+  try {
+    const audio = new AudioContext()
+    const oscillator = audio.createOscillator()
+    const gain = audio.createGain()
+    oscillator.connect(gain)
+    gain.connect(audio.destination)
+    gain.gain.value = 0.08
+    oscillator.frequency.value = 660
+    oscillator.start()
+    oscillator.stop(audio.currentTime + 0.18)
+    oscillator.onended = () => void audio.close()
+  } catch {
+    // браузер не дал проиграть звук без действия пользователя
   }
 }
 

@@ -30,6 +30,8 @@ export function InboxPage() {
     queryKey: ['ticket', ticketId],
     queryFn: () => ticketsApi.get(ticketId!),
     enabled: !!ticketId,
+    // Ссылки на вложения временные: пока тикет открыт, обновляем их заранее.
+    refetchInterval: 10 * 60_000,
   })
   const details = ticket.data
 

@@ -31,7 +31,8 @@ description: Порядок добавления или изменения фу�
    dotnet ef migrations add <Name> --project src/Relayo.Core --startup-project src/Relayo.Core --output-dir Data/Migrations
    ```
 3. Прочитать сгенерированную миграцию: у новых NOT NULL колонок — разумный `defaultValue`/`defaultValueSql`, старые строки заполнены
-   (`migrationBuilder.Sql(...)`), случайные значения — `gen_random_uuid()`. Ничего лишнего (ошибочные drop/rename) не попало.
+   (`migrationBuilder.Sql(...)`, T-SQL), случайные значения — `NEWID()`. Ничего лишнего (ошибочные drop/rename) не попало.
+   Ключи и токены — `.IsCaseSensitive()`; JSON-документы — `nvarchar(max)` с конвертером (как `Rule.Definition`, `Widget.Options`).
 4. Миграция применяется при старте Internal. Применённую миграцию не удалять — исправлять следующей.
 
 ## 3. API — `src/Relayo.Internal/Api/`

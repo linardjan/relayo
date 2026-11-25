@@ -10,7 +10,7 @@ namespace Relayo.Internal.Automation;
 /// <summary>Событие для правил. Идёт через durable-очередь «rules»: не теряется при перезапуске.</summary>
 public sealed record RuleEventOccurred(Guid TicketId, string Kind, Guid? MessageId = null, bool TicketCreated = false);
 
-/// <summary>Сработал таймер «не ответил N минут» (отложенное сообщение Wolverine, хранится в PostgreSQL).</summary>
+/// <summary>Сработал таймер «не ответил N минут» (отложенное сообщение Wolverine, хранится в БД).</summary>
 public sealed record RuleTimerElapsed(Guid TicketId, Guid RuleId, string Type, int Minutes, Guid MessageId);
 
 /// <summary>Публикует события для правил из обработчиков API и каналов.</summary>

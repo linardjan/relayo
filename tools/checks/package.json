@@ -4,6 +4,7 @@
   "type": "commonjs",
   "description": "Проверки работающего стенда: API, realtime, правила, Telegram, LDAP, скриншоты админки и виджета",
   "dependencies": {
+    "mssql": "^11.0.3",
     "playwright-core": "^1.65.1"
   }
 }

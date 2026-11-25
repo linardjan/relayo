@@ -5,6 +5,7 @@ using Relayo.Core.Channels;
 using Relayo.Core.Clients;
 using Relayo.Core.Conversations;
 using Relayo.Core.Directory;
+using Relayo.Core.Files;
 using Relayo.Core.Sites;
 using Relayo.Core.Users;
 
@@ -35,6 +36,8 @@ public sealed class RelayoDbContext(DbContextOptions<RelayoDbContext> options) :
     public DbSet<Chat> Chats => Set<Chat>();
 
     public DbSet<Message> Messages => Set<Message>();
+
+    public DbSet<Attachment> Attachments => Set<Attachment>();
 
     public DbSet<TelegramBot> TelegramBots => Set<TelegramBot>();
 

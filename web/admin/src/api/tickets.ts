@@ -31,6 +31,16 @@ export interface OperatorMessage {
   channel: Channel
   /** Автоответ правила, а не ответ сотрудника. */
   automated?: boolean
+  attachments?: Attachment[] | null
+}
+
+export interface Attachment {
+  id: string
+  fileName: string
+  contentType: string
+  size: number
+  /** Временная ссылка на скачивание (живёт S3_PRESIGNED_URL_MINUTES). */
+  url: string | null
 }
 
 export interface ChatView {
@@ -58,8 +68,15 @@ export interface TicketDetails {
 export const ticketsApi = {
   list: (closed: boolean) => api<TicketSummary[]>(`/api/tickets?closed=${closed}`),
   get: (id: string) => api<TicketDetails>(`/api/tickets/${id}`),
-  reply: (id: string, chatId: string, text: string) =>
-    api<OperatorMessage>(`/api/tickets/${id}/messages`, { method: 'POST', body: JSON.stringify({ chatId, text }) }),
+  reply: (id: string, chatId: string, text: string, files: File[] = []) => {
+    if (files.length === 0)
+      return api<OperatorMessage>(`/api/tickets/${id}/messages`, { method: 'POST', body: JSON.stringify({ chatId, text }) })
+    const form = new FormData()
+    form.append('chatId', chatId)
+    form.append('text', text)
+    for (const file of files) form.append('files', file, file.name)
+    return api<OperatorMessage>(`/api/tickets/${id}/messages`, { method: 'POST', body: form })
+  },
   assign: (id: string) => api<TicketSummary>(`/api/tickets/${id}/assign`, { method: 'POST' }),
   close: (id: string) => api<TicketSummary>(`/api/tickets/${id}/close`, { method: 'POST' }),
   setAlias: (alias: string) => api<User>('/api/me/alias', { method: 'PUT', body: JSON.stringify({ alias }) }),

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
+import { HttpTransportType, HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
 import { useQueryClient } from '@tanstack/react-query'
 import { getAccessToken, refreshSession } from '../api/client'
 import type { OperatorMessage, TicketDetails, TicketSummary } from '../api/tickets'
@@ -19,6 +19,10 @@ export function useOperatorHub(onTicketChanged?: TicketChangedHandler) {
   useEffect(() => {
     const hub = new HubConnectionBuilder()
       .withUrl('/hubs/operators', {
+        // Только WebSocket и без negotiate: при нескольких экземплярах внутреннего сервиса не нужны
+        // «липкие» сессии на балансировщике (negotiate и подключение могли бы уйти в разные экземпляры).
+        transport: HttpTransportType.WebSockets,
+        skipNegotiation: true,
         accessTokenFactory: async () => getAccessToken() ?? (await refreshSession())?.accessToken ?? '',
       })
       // Стандартная политика сдаётся после 4 попыток, и админка молча перестаёт получать события.

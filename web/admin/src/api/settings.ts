@@ -20,6 +20,35 @@ export interface Site {
 export type IdentificationMode = 'SignedToken' | 'Direct'
 export type WidgetPosition = 'Right' | 'Left'
 
+export type LauncherItemType = 'Chat' | 'Telegram' | 'Link'
+
+export interface LauncherItem {
+  type: LauncherItemType
+  label: string
+  url?: string | null
+}
+
+/** Внешний вид и поведение виджета на сайте (страница канала). */
+export interface WidgetOptions {
+  caption: string
+  allowAttachments: boolean
+  zIndex: number
+  hideOnOutsideClick: boolean
+  visibility: 'Always' | 'Never'
+  buttonDelaySeconds: number
+  buttonColor: string | null
+  /** Имя файла своей картинки кнопки; меняется загрузкой, в форме его можно только убрать. */
+  buttonIcon: string | null
+  tooltipMode: 'Never' | 'Always' | 'Hover'
+  tooltipText: string
+  tooltipBackground: string
+  tooltipColor: string
+  tooltipTextSize: number
+  sound: 'None' | 'Beep'
+  operatorName: string | null
+  items: LauncherItem[]
+}
+
 export interface WidgetInput {
   name: string
   identificationMode: IdentificationMode
@@ -29,6 +58,7 @@ export interface WidgetInput {
   position: WidgetPosition
   defaultLocale: string
   telegramBotId: string | null
+  options: WidgetOptions
 }
 
 export interface Widget extends WidgetInput {
@@ -49,6 +79,8 @@ export interface WidgetRow {
   embedCode: string
   /** Адрес опубликованного файла в S3; null — хранилище не настроено. */
   fileUrl: string | null
+  /** Адрес своей картинки кнопки для предпросмотра. */
+  buttonIconUrl: string | null
 }
 
 export interface WidgetVersion {
@@ -166,11 +198,18 @@ export const settingsApi = {
   widgetVersions: (id: string) => api<WidgetVersion[]>(`/api/settings/widgets/${id}/versions`),
   rollbackWidget: (id: string, version: number) =>
     api<WidgetRow>(`/api/settings/widgets/${id}/versions/${version}/rollback`, json('POST')),
+  deleteWidget: (id: string) => api<void>(`/api/settings/widgets/${id}`, json('DELETE')),
+  uploadButtonIcon: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api<WidgetRow>(`/api/settings/widgets/${id}/button-icon`, { method: 'POST', body: form })
+  },
 
   telegramBots: () => api<TelegramBot[]>('/api/settings/telegram-bots'),
   createTelegramBot: (input: TelegramBotInput) => api<TelegramBot>('/api/settings/telegram-bots', json('POST', input)),
   updateTelegramBot: (id: string, input: TelegramBotInput) =>
     api<TelegramBot>(`/api/settings/telegram-bots/${id}`, json('PUT', input)),
+  deleteTelegramBot: (id: string) => api<void>(`/api/settings/telegram-bots/${id}`, json('DELETE')),
 
   channelCounts: () => api<{ widgets: Record<string, number>; telegramBots: Record<string, number> }>('/api/settings/channels/counts'),
 

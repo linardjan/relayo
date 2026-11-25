@@ -73,6 +73,13 @@ message WidgetConfig {
   int32 history_days = 10;
   // Имя Telegram-бота без @, если он подключён к виджету.
   string telegram_bot = 11;
+  // Посетитель может прикладывать файлы; лимит — суммарный размер файлов одного сообщения.
+  bool allow_attachments = 12;
+  int64 max_attachment_bytes = 13;
+  // Внешний вид и поведение виджета (подпись, кнопка, подсказка, пункты) в JSON, как в опубликованном файле.
+  // Публичный сервис передаёт их виджету как есть.
+  string options_json = 14;
+  string button_icon_url = 15;
 }
 
 message StartVisitorRequest {
@@ -110,6 +117,14 @@ message SendVisitorMessageRequest {
   string visitor_token = 2;
   string text = 3;
   string client_message_id = 4;
+  // Вложения. Тип и размер проверяет внутренний сервис; публичный — только размер и заявленный тип.
+  repeated UploadedFile files = 5;
+}
+
+message UploadedFile {
+  string file_name = 1;
+  string content_type = 2;
+  bytes content = 3;
 }
 
 message VisitorRequest {
@@ -127,6 +142,16 @@ message WidgetMessage {
   string text = 5;
   int64 created_at_unix_ms = 6;
   string client_message_id = 7;
+  repeated WidgetAttachment attachments = 8;
+}
+
+// Вложение: скачивается по временной ссылке из S3.
+message WidgetAttachment {
+  string id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  int64 size = 4;
+  string url = 5;
 }
 
 message WidgetHistory {

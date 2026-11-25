@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Relayo.Core.Clients;
 using Relayo.Core.Data;
+using Relayo.Core.Files;
 using Relayo.Core.Users;
 
 namespace Relayo.Core.Conversations;
@@ -32,7 +33,8 @@ public sealed record OperatorMessageView(
     string Text,
     DateTimeOffset CreatedAt,
     Channel Channel,
-    bool Automated = false);
+    bool Automated = false,
+    IReadOnlyList<AttachmentView>? Attachments = null);
 
 /// <param name="ReplyChannel">Куда уйдёт ответ оператора: в канал, из которого клиент написал последним (п. 3.2 ТЗ).</param>
 public sealed record ChatView(Guid Id, bool IsVerified, DateTimeOffset CreatedAt, Channel ReplyChannel,
@@ -41,7 +43,8 @@ public sealed record ChatView(Guid Id, bool IsVerified, DateTimeOffset CreatedAt
 public sealed record TicketDetails(TicketSummary Ticket, ClientCard Client, IReadOnlyList<ChatView> Chats);
 
 /// <summary>Ответ нужно доставить в Telegram: через этого бота в этот чат. Без псевдонима — автоответ.</summary>
-public sealed record TelegramDelivery(Guid BotId, long ChatId, string? OperatorAlias, string Text);
+public sealed record TelegramDelivery(Guid BotId, long ChatId, string? OperatorAlias, string Text,
+    IReadOnlyList<StoredFile>? Files = null);
 
 public sealed record OperatorReply(
     OperatorMessageView Message,
@@ -51,7 +54,8 @@ public sealed record OperatorReply(
     TelegramDelivery? Telegram);
 
 /// <summary>Работа операторов с тикетами.</summary>
-public sealed class TicketService(RelayoDbContext db, WidgetConversationService widgets, TimeProvider time)
+public sealed class TicketService(RelayoDbContext db, WidgetConversationService widgets, AttachmentService attachments,
+    TimeProvider time)
 {
     /// <summary>Подпись автоответов правил в админке.</summary>
     public const string AutoReplyName = "Auto-reply";
@@ -95,6 +99,8 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
             .Take(MessagesPerTicketLimit)
             .ToListAsync(ct);
 
+        var files = await attachments.ForChatsAsync(chatIds, since: null, ct);
+        messages = messages.Select(m => files.Contains(m.Id) ? m with { Attachments = files[m.Id].ToList() } : m).ToList();
         var byChat = messages.ToLookup(m => m.ChatId);
         var summary = ToSummary(row);
         return new TicketDetails(
@@ -107,10 +113,10 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
     }
 
     public async Task<OperatorReply> ReplyAsync(Guid ticketId, Guid chatId, Guid operatorId, string text,
-        CancellationToken ct)
+        IReadOnlyList<FileUpload> uploads, CancellationToken ct)
     {
         text = text.Trim();
-        if (text.Length is 0 or > Message.TextMaxLength)
+        if (text.Length > Message.TextMaxLength || (text.Length == 0 && uploads.Count == 0))
             throw new DomainException(ErrorCodes.InvalidInput, "Message is empty or too long");
 
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.Id == operatorId, ct);
@@ -125,19 +131,21 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
                    ?? throw new DomainException(ErrorCodes.ChatNotFound, "Chat not found in this ticket");
 
         var (channel, route) = await ReplyRouteAsync(chat.Id, ct);
-        var telegram = route is { } r ? new TelegramDelivery(r.BotId, r.ChatId, user.Alias!, text) : null;
+        var files = await attachments.StoreAsync(uploads, ct);
+        var telegram = route is { } r ? new TelegramDelivery(r.BotId, r.ChatId, user.Alias!, text, files) : null;
 
         var now = time.GetUtcNow();
         var message = Message.FromOperator(chat, operatorId, text, channel, now);
         db.Messages.Add(message);
+        var views = attachments.Attach(message, files);
         chat.OnMessage(now);
-        ticket.OnOperatorMessage(operatorId, text, now);
+        ticket.OnOperatorMessage(operatorId, AttachmentService.Preview(text, files), now);
         await db.SaveChangesAsync(ct);
 
         return new OperatorReply(
             new OperatorMessageView(message.Id, chat.Id, message.Author, user.FullName, message.Text, message.CreatedAt,
-                message.Channel),
-            WidgetConversationService.ToView(message, user.Alias),
+                message.Channel, Attachments: views),
+            WidgetConversationService.ToView(message, user.Alias, views),
             await GetSummaryAsync(ticketId, ct),
             await widgets.GetRecipientsAsync(chat, ct),
             telegram);
@@ -158,7 +166,9 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         if (lastFromClient is { Channel: Channel.Telegram, VisitorIdentityId: { } identityId })
         {
             var identity = await db.ClientIdentities.AsNoTracking().SingleOrDefaultAsync(i => i.Id == identityId, ct);
-            if (identity is not null && identity.TryGetTelegramChat(out var botId, out var telegramChatId))
+            // Бота могли удалить или выключить: тогда ответ увидит только виджет.
+            if (identity is not null && identity.TryGetTelegramChat(out var botId, out var telegramChatId)
+                && await db.TelegramBots.AnyAsync(b => b.Id == botId && b.IsEnabled, ct))
                 return (Channel.Telegram, (botId, telegramChatId));
         }
         return (Channel.Widget, null);

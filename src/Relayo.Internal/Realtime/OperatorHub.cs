@@ -7,7 +7,7 @@ namespace Relayo.Internal.Realtime;
 /// <summary>
 /// Realtime для админки: новые сообщения и изменения тикетов.
 /// Пока все события получают все операторы; разделение по отделам появится вместе с отделами.
-/// При нескольких экземплярах внутреннего сервиса понадобится Redis backplane.
+/// При нескольких экземплярах события между ними передаёт Redis backplane (REDIS_HOST).
 /// </summary>
 [Authorize]
 public sealed class OperatorHub : Hub
