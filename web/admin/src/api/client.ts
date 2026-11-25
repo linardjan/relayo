@@ -21,10 +21,12 @@ export interface AuthResponse {
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code: string | undefined
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -34,6 +36,10 @@ let onSessionLost: (() => void) | null = null
 
 export function setAccessToken(token: string | null) {
   accessToken = token
+}
+
+export function getAccessToken(): string | null {
+  return accessToken
 }
 
 /** Вызывается, когда сессию не удалось продлить: пора показать форму входа. */
@@ -48,7 +54,18 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
   })
-  if (!response.ok) throw new ApiError(response.status, response.statusText)
+  if (!response.ok) {
+    let code: string | undefined
+    let title = response.statusText
+    try {
+      const problem = await response.json()
+      code = problem.code
+      title = problem.title ?? title
+    } catch {
+      // тело не JSON
+    }
+    throw new ApiError(response.status, title, code)
+  }
   return (response.status === 204 ? undefined : await response.json()) as T
 }
 
@@ -115,6 +132,17 @@ export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
     }
     response = await send()
   }
-  if (!response.ok) throw new ApiError(response.status, response.statusText)
+  if (!response.ok) {
+    let code: string | undefined
+    let title = response.statusText
+    try {
+      const problem = await response.json()
+      code = problem.code
+      title = problem.title ?? title
+    } catch {
+      // тело не JSON
+    }
+    throw new ApiError(response.status, title, code)
+  }
   return (response.status === 204 ? undefined : await response.json()) as T
 }

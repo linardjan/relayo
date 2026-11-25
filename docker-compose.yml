@@ -113,6 +113,31 @@ services:
     volumes:
       - seq-data:/data
 
+  # Тестовый сайт с виджетом (tools/TestSite): два порта — два зеркала.
+  # Виджет он загружает с публичного сервиса Relayo (PUBLIC_BASE_URL), который запущен на хосте.
+  test-site:
+    build:
+      context: .
+      dockerfile: tools/TestSite/Dockerfile
+    restart: unless-stopped
+    environment:
+      TEST_SITE_PORT: ${TEST_SITE_PORT}
+      TEST_SITE_MIRROR_PORT: ${TEST_SITE_MIRROR_PORT}
+      TEST_SITE_PRODUCT: ${TEST_SITE_PRODUCT}
+      TEST_SITE_KEY_ID: ${TEST_SITE_KEY_ID}
+      TEST_SITE_SECRET: ${TEST_SITE_SECRET}
+      TEST_SITE_CLIENT_IDS: ${TEST_SITE_CLIENT_IDS}
+      TEST_SITE_TOKEN_MINUTES: ${TEST_SITE_TOKEN_MINUTES}
+      TEST_WIDGET_TOKEN_MODE_ID: ${TEST_WIDGET_TOKEN_MODE_ID}
+      TEST_WIDGET_DIRECT_MODE_ID: ${TEST_WIDGET_DIRECT_MODE_ID}
+      TEST_WIDGET_TOKEN_MODE_KEY: ${TEST_WIDGET_TOKEN_MODE_KEY}
+      TEST_WIDGET_DIRECT_MODE_KEY: ${TEST_WIDGET_DIRECT_MODE_KEY}
+      WIDGET_FILES_BASE_URL: ${WIDGET_FILES_BASE_URL}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+    ports:
+      - "${TEST_SITE_PORT}:${TEST_SITE_PORT}"
+      - "${TEST_SITE_MIRROR_PORT}:${TEST_SITE_MIRROR_PORT}"
+
   # Тестовый Active Directory. Запускается только с профилем "ad".
   # Пользователей и папку Support создаёт скрипт:
   #   docker compose exec samba sh /seed/seed.sh

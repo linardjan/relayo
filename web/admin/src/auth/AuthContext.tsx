@@ -9,6 +9,7 @@ interface AuthState {
   user: User | null
   login: (login: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  updateUser: (user: User) => void
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [setAnonymous])
 
-  const value = useMemo(() => ({ status, user, login, logout }), [status, user, login, logout])
+  const value = useMemo(() => ({ status, user, login, logout, updateUser: setUser }), [status, user, login, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

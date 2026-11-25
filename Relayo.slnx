@@ -9,4 +9,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Relayo.Tests/Relayo.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/TestSite/TestSite.csproj" />
+  </Folder>
 </Solution>

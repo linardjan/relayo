@@ -2,6 +2,9 @@ using Microsoft.Extensions.Configuration;
 using Npgsql;
 using Relayo.Core.Auth;
 using Relayo.Core.Data;
+using Relayo.Core.Sites;
+using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Storage;
 using Relayo.ServiceDefaults;
 
 namespace Relayo.Internal.Configuration;
@@ -14,7 +17,13 @@ public sealed record InternalSettings(
     RabbitSettings Rabbit,
     JwtOptions Jwt,
     DatabaseInitializerOptions Database,
-    bool SecureCookies)
+    byte[] SecretsEncryptionKey,
+    ClientTokenOptions ClientTokens,
+    string PublicBaseUrl,
+    bool SecureCookies,
+    TelegramSettings Telegram,
+    StorageSettings? Storage,
+    string? WidgetFilesBaseUrl)
 {
     public static InternalSettings Load(IConfiguration configuration, bool isDevelopment)
     {
@@ -40,6 +49,14 @@ public sealed record InternalSettings(
         if (grpcKey.Length is > 0 and < 32)
             config.AddError("INTERNAL_GRPC_KEY must be at least 32 characters (generate with: openssl rand -base64 32)");
 
+        var secretsKey = config.Base64Key("SECRETS_ENCRYPTION_KEY", minBytes: 32);
+        if (secretsKey.Length > 32)
+            secretsKey = secretsKey[..32];
+
+        var testSite = isDevelopment && config.Bool("DEV_SEED_TEST_SITE", false)
+            ? LoadTestSite(config)
+            : null;
+
         var settings = new InternalSettings(
             config.Int("INTERNAL_HTTP_PORT", 5100),
             config.Int("INTERNAL_GRPC_PORT", 5101),
@@ -51,10 +68,100 @@ public sealed record InternalSettings(
                 postgres,
                 config.Bool("DB_MIGRATE_ON_START", true),
                 config.Optional("BOOTSTRAP_ADMIN_LOGIN"),
-                config.Optional("BOOTSTRAP_ADMIN_PASSWORD")),
-            SecureCookies: !isDevelopment);
+                config.Optional("BOOTSTRAP_ADMIN_PASSWORD"),
+                testSite),
+            secretsKey,
+            new ClientTokenOptions(
+                TimeSpan.FromSeconds(config.Int("CLIENT_TOKEN_CLOCK_SKEW_SECONDS", 60)),
+                MaxLifetime: TimeSpan.FromHours(1)),
+            config.Required("PUBLIC_BASE_URL"),
+            SecureCookies: !isDevelopment,
+            LoadTelegram(config),
+            LoadStorage(config),
+            config.Optional("WIDGET_FILES_BASE_URL"));
 
         config.ThrowIfInvalid();
         return settings;
+    }
+
+    /// <summary>S3 необязателен: без него не работает публикация виджетов, остальное работает.</summary>
+    private static StorageSettings? LoadStorage(RelayoConfig config)
+    {
+        var endpoint = config.Optional("S3_ENDPOINT");
+        if (endpoint is null)
+            return null;
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+        {
+            config.AddError($"S3_ENDPOINT must be an absolute URL, got '{endpoint}'");
+            return null;
+        }
+        return new StorageSettings(uri, config.Get("S3_REGION", "us-east-1"), config.Required("S3_ACCESS_KEY"),
+            config.Required("S3_SECRET_KEY"), config.Bool("S3_FORCE_PATH_STYLE", true),
+            config.Get("S3_BUCKET_WIDGETS", "relayo-widgets"));
+    }
+
+    private static TelegramSettings LoadTelegram(RelayoConfig config)
+    {
+        var modeValue = config.Get("TELEGRAM_UPDATES_MODE", "webhook");
+        if (!Enum.TryParse<TelegramUpdatesMode>(modeValue, ignoreCase: true, out var mode))
+            config.AddError($"TELEGRAM_UPDATES_MODE must be webhook or polling, got '{modeValue}'");
+
+        Uri? ParseUrl(string key, string? value)
+        {
+            if (value is null)
+                return null;
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
+                return uri;
+            config.AddError($"{key} must be an absolute URL, got '{value}'");
+            return null;
+        }
+
+        var apiBase = ParseUrl("TELEGRAM_API_BASE_URL", config.Get("TELEGRAM_API_BASE_URL", "https://api.telegram.org"))
+                      ?? new Uri("https://api.telegram.org");
+        return new TelegramSettings(mode, apiBase, ParseUrl("TELEGRAM_PROXY_URL", config.Optional("TELEGRAM_PROXY_URL")));
+    }
+
+    /// <summary>Тестовый сайт для tools/TestSite (п. 2.3 ТЗ). Только Development.</summary>
+    private static TestSiteSeed LoadTestSite(RelayoConfig config)
+    {
+        var origins = new List<string>
+        {
+            $"http://localhost:{config.Int("TEST_SITE_PORT", 5300)}",
+            $"http://localhost:{config.Int("TEST_SITE_MIRROR_PORT", 5301)}",
+        };
+        // Страница в VS Code Live Server тоже считается доменом тестового сайта.
+        origins.AddRange(config.List("PUBLIC_CORS_EXTRA_ORIGINS"));
+
+        Guid ParseGuid(string key)
+        {
+            var value = config.Required(key);
+            if (Guid.TryParse(value, out var id))
+                return id;
+            if (value.Length > 0)
+                config.AddError($"{key} must be a GUID, got '{value}'");
+            return Guid.Empty;
+        }
+
+        var secret = config.Required("TEST_SITE_SECRET");
+        if (secret.Length is > 0 and < 32)
+            config.AddError("TEST_SITE_SECRET must be at least 32 characters (generate with: openssl rand -base64 32)");
+
+        return new TestSiteSeed(
+            config.Get("TEST_SITE_PRODUCT", "test"),
+            origins,
+            config.Get("TEST_SITE_KEY_ID", "test-key-1"),
+            secret,
+            ParseGuid("TEST_WIDGET_TOKEN_MODE_ID"),
+            ParseGuid("TEST_WIDGET_DIRECT_MODE_ID"),
+            WidgetKey("TEST_WIDGET_TOKEN_MODE_KEY", "testtoken1"),
+            WidgetKey("TEST_WIDGET_DIRECT_MODE_KEY", "testdirect"));
+
+        string WidgetKey(string key, string fallback)
+        {
+            var value = config.Get(key, fallback);
+            if (!WidgetKeys.IsValid(value))
+                config.AddError($"{key} must be {Widget.PublicKeyLength} latin letters or digits, got '{value}'");
+            return value;
+        }
     }
 }

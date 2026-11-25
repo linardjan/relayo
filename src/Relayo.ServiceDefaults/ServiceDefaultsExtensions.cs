@@ -49,7 +49,8 @@ public static class ServiceDefaultsExtensions
                     .AddAspNetCoreInstrumentation(o =>
                         o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health"))
                     .AddHttpClientInstrumentation()
-                    .AddSource("Wolverine");
+                    .AddSource("Wolverine")
+                    .AddProcessor(new SecretRedactingProcessor());
                 if (otlpEndpoint is not null)
                     tracing.AddOtlpExporter(o =>
                     {

@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
       // работают с одного адреса: CORS не нужен, cookie с refresh-токеном работает как в бою.
       proxy: {
         '/api': { target: env.VITE_API_BASE_URL || 'http://localhost:5100', changeOrigin: false },
+        '/hubs': { target: env.VITE_API_BASE_URL || 'http://localhost:5100', changeOrigin: false, ws: true },
       },
     },
   }

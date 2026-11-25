@@ -1,10 +1,18 @@
 namespace Relayo.Contracts;
 
-/// <summary>Очереди RabbitMQ, которые слушают сервисы.</summary>
+/// <summary>Очереди и обменники RabbitMQ.</summary>
 public static class Queues
 {
+    /// <summary>Очередь внутреннего сервиса.</summary>
     public const string Internal = "relayo.internal";
-    public const string Public = "relayo.public";
+
+    /// <summary>
+    /// Fanout-обменник событий для виджетов. У каждого экземпляра публичного сервиса
+    /// своя временная очередь, привязанная к нему: событие получают все экземпляры.
+    /// </summary>
+    public const string WidgetEvents = "relayo.widget-events";
+
+    public static string PublicInstanceQueue(string instanceId) => $"relayo.public.{instanceId}";
 }
 
 /// <summary>Заголовки gRPC между публичным и внутренним сервисами.</summary>

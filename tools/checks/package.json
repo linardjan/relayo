@@ -1,0 +1,9 @@
+{
+  "name": "relayo-checks",
+  "private": true,
+  "type": "commonjs",
+  "description": "Проверки работающего стенда: API, realtime, правила, Telegram, LDAP, скриншоты админки и виджета",
+  "dependencies": {
+    "playwright-core": "^1.65.1"
+  }
+}

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import logo from '../assets/login-logo.png'
 
 interface LoginForm {
   login: string
@@ -37,9 +38,11 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', background: '#f5f5f5' }}>
-      <Card style={{ width: 360 }}>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>
+    // Логотип нарисован на чёрном фоне, поэтому и страница входа тёмная.
+    <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 8, background: '#000' }}>
+      <img src={logo} alt={t('app.name')} style={{ width: 360, maxWidth: '90vw', height: 'auto' }} />
+      <Card style={{ width: 360, maxWidth: '90vw' }}>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
           {t('login.title')}
         </Typography.Title>
         {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}

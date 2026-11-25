@@ -18,6 +18,50 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.Role).HasConversion<string>().HasMaxLength(32);
         b.Property(u => u.Source).HasConversion<string>().HasMaxLength(32);
         b.HasIndex(u => u.AdObjectGuid).IsUnique();
+        b.Property(u => u.Email).HasMaxLength(User.EmailMaxLength);
+        b.Property(u => u.Position).HasMaxLength(User.PositionMaxLength);
+        b.Property(u => u.Phone).HasMaxLength(User.PhoneMaxLength);
+        b.Property(u => u.Locale).HasMaxLength(16);
+        b.Property(u => u.Status).HasConversion<string>().HasMaxLength(16);
+        // Группы сотрудника — массив uuid: их немного, читаются и пишутся вместе с сотрудником.
+        b.Property(u => u.GroupIds).HasColumnType("uuid[]");
+        b.HasOne<AgentGroup>().WithMany().HasForeignKey(u => u.DefaultGroupId).OnDelete(DeleteBehavior.SetNull);
+    }
+}
+
+internal sealed class AgentGroupConfiguration : IEntityTypeConfiguration<AgentGroup>
+{
+    public void Configure(EntityTypeBuilder<AgentGroup> b)
+    {
+        b.HasKey(g => g.Id);
+        b.Property(g => g.Name).HasMaxLength(AgentGroup.NameMaxLength);
+        b.HasIndex(g => g.Name).IsUnique();
+    }
+}
+
+internal sealed class LdapSettingsConfiguration : IEntityTypeConfiguration<Directory.LdapSettings>
+{
+    public void Configure(EntityTypeBuilder<Directory.LdapSettings> b)
+    {
+        b.HasKey(s => s.Id);
+        b.Property(s => s.Id).ValueGeneratedNever();
+        // Одна запись на всю систему.
+        b.ToTable(t => t.HasCheckConstraint("ck_ldap_settings_singleton", $"id = {Directory.LdapSettings.SingletonId}"));
+        b.Property(s => s.Host).HasMaxLength(Directory.LdapSettings.TextMaxLength);
+        b.Property(s => s.BindDn).HasMaxLength(Directory.LdapSettings.TextMaxLength);
+        b.Property(s => s.UsersDn).HasMaxLength(Directory.LdapSettings.TextMaxLength);
+        b.Property(s => s.GuidAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.LoginAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.FullNameAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.MailAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.PhoneAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.PositionAttribute).HasMaxLength(Directory.LdapSettings.AttributeMaxLength);
+        b.Property(s => s.Security).HasConversion<string>().HasMaxLength(16);
+        b.Property(s => s.Provider).HasConversion<string>().HasMaxLength(32);
+        b.Property(s => s.DefaultRole).HasConversion<string>().HasMaxLength(32);
+        b.Property(s => s.LastCheckMessage).HasMaxLength(1000);
+        b.Property(s => s.LastSyncMessage).HasMaxLength(4000);
+        b.Ignore(s => s.IsConfigured);
     }
 }
 
