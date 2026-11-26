@@ -38,6 +38,7 @@ internal sealed class AgentGroupConfiguration : IEntityTypeConfiguration<AgentGr
         b.HasKey(g => g.Id);
         b.Property(g => g.Name).HasMaxLength(AgentGroup.NameMaxLength);
         b.HasIndex(g => g.Name).IsUnique();
+        b.HasIndex(g => g.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
     }
 }
 

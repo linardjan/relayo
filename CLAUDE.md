@@ -48,6 +48,8 @@
   (`ConversationEvents`, `AutomationEvents`); долгие действия — durable-очереди (`telegram-outgoing`, `rules`).
 - Новое поле в БД — миграция в `src/Relayo.Core/Data/Migrations`; у новых NOT NULL колонок задавать default и заполнять старые строки.
   Миграции применяются при старте Internal. Удалить уже применённую миграцию нельзя — делаем следующую.
+  До первого выпуска все миграции объединены в одну `Initial` (26.11.2026): база, созданная прежними миграциями,
+  её не примет — пересоздать базу (`docker compose down` + удалить том `relayo_mssql-data`).
 - Админка: страница = `Page` + `SectionCard` + `SettingsForm` из `layout/Page.tsx`; запросы — `api/*.ts` + TanStack Query;
   маршрут и пункт меню — `layout/menu.tsx` и `App.tsx`.
 - Ответ оператора требует псевдонима (alias): клиент видит только его, ФИО — только сотрудники.

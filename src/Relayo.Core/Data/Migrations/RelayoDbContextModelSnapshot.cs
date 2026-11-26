@@ -624,6 +624,12 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AvatarKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("avatar_key")
+                        .UseCollation("Latin1_General_100_BIN2");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -639,14 +645,32 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnName("external_client_id")
                         .UseCollation("Latin1_General_100_BIN2");
 
+                    b.Property<bool>("IsSpammer")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_spammer");
+
                     b.Property<bool>("IsVerified")
                         .HasColumnType("bit")
                         .HasColumnName("is_verified");
+
+                    b.Property<bool>("IsVip")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_vip");
 
                     b.Property<string>("Locale")
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)")
                         .HasColumnName("locale");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Position")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("position");
 
                     b.Property<Guid>("SiteId")
                         .HasColumnType("uniqueidentifier")
@@ -659,15 +683,15 @@ namespace Relayo.Core.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_clients");
 
-                    b.HasIndex("UsedeskId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_clients_usedesk_id")
-                        .HasFilter("usedesk_id IS NOT NULL");
-
                     b.HasIndex("SiteId", "ExternalClientId")
                         .IsUnique()
                         .HasDatabaseName("ix_clients_site_id_external_client_id")
                         .HasFilter("external_client_id IS NOT NULL");
+
+                    b.HasIndex("UsedeskId", "SiteId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_clients_usedesk_id_site_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.ToTable("clients", (string)null);
                 });
@@ -1484,12 +1508,21 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("name");
 
+                    b.Property<int?>("UsedeskId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_id");
+
                     b.HasKey("Id")
                         .HasName("pk_agent_groups");
 
                     b.HasIndex("Name")
                         .IsUnique()
                         .HasDatabaseName("ix_agent_groups_name");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_agent_groups_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.ToTable("agent_groups", (string)null);
                 });

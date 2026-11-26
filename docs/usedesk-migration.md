@@ -41,7 +41,7 @@ CSAT и ботов. Импорт можно запускать повторно:
 | `name` | `alias` | Псевдоним, который видел клиент в Usedesk. Длиннее 100 символов — обрезаем. `full_name` до синхронизации с AD временно равен `name`, синхронизация заменит его на `displayName`; у тех, кого в AD нет, так и остаётся |
 | `position`, `phone`, `lang` | `position`, `phone`, `locale` | Как есть |
 | `role`: `admin` / `employee` / `support` / `bot` | `role` | `admin` → Admin, `employee` → Operator; `support` (учётки Usedesk) не переносим; сообщения `bot` — автоответы |
-| `user_group_id`, `default_group` | `group_ids`, `default_group_id` | Через сопоставление групп (таблица групп Usedesk ещё не разобрана) |
+| `user_group_id`, `default_group` | `group_ids`, `default_group_id` | Через `agent_groups.usedesk_id` (2.11). Если сотрудник бывает в нескольких группах, их список — в отдельной таблице (запрос в разделе 9) |
 | `deleted`, `deleted_at`, `status` | `is_blocked` | Уволенных переносим **заблокированными** — чтобы в истории остались имена |
 | `password`, `remember_token`, `token`, `confirmation_code` | — | **Не переносим** (секреты) |
 | остальное (`avatar`, подписи, `online_status`, `zendesk_id`, …) | — | Не нужно |
@@ -66,10 +66,9 @@ CSAT и ботов. Импорт можно запускать повторно:
 | `subject` | `subject` | Как есть, длиннее 255 символов — обрезаем. В списке тикетов тема показывается вместо превью |
 | `channel` | `last_client_channel`, `source_channel` | В `source_channel` — значение Usedesk как есть (у всех перенесённых). `last_client_channel` — по таблице ниже |
 | — | `source` | `Usedesk` у всех перенесённых |
-| `group` | `group_id` | Через сопоставление групп |
+| `group` | `group_id` | Через `agent_groups.usedesk_id` (2.11) |
 | `email_channel_id` | — | Канал Usedesk → наш виджет / бот / номер (раздел 2.7) |
 | `social_id` | `client_identities.external_id` | id клиента в мессенджере (чат Telegram, номер WhatsApp): ключ продолжения переписки |
-| `group` | — | **Добавить** `tickets.group_id` |
 | `priority`, `type` | — | Переносить, только если ими пользовались (`tickets.priority`) |
 | `published_at` | `created_at` | Нулевая дата → дата первого сообщения |
 | `last_updated_at` | `updated_at` | По нему догрузка (индекс `company_id, last_updated_at`) |
@@ -183,7 +182,7 @@ CSAT и ботов. Импорт можно запускать повторно:
 | Usedesk | Relayo | |
 |---|---|---|
 | `id`, `name`, `type`, `sub_type` | виджет / Telegram-бот / номер WhatsApp | Тип определяет, во что превращается канал: виджет — через `usedesk_widget`, Telegram — через `telegram_settings`, WhatsApp — через `pact_settings`; почта, ВК и прочие — только история |
-| `group_id` | — | Группа по умолчанию для тикетов канала: понадобится для распределения |
+| `group_id` | — | Группа по умолчанию для тикетов канала (`user_groups.id`): понадобится для распределения; у каналов Relayo такого поля пока нет |
 | `deleted`, `deleted_at` | — | Удалённые каналы встречаются в старых тикетах: такие тикеты — только история |
 | `auto_reply`, `auto_reply_message` | правило | Заменяется нашим правилом |
 | `csi` | — | Оценка (CSAT) по каналу — когда будет CSAT |
@@ -227,11 +226,80 @@ CSAT и ботов. Импорт можно запускать повторно:
 в день переключения сканируется в Relayo заново, затем устройство Pact отвязывается в телефоне — иначе сообщения
 будут получать оба. `group_chats` — получать групповые чаты (у нас пока нет). Логин и пароль Pact не переносим.
 
+### 2.9. `clients` → `clients`
+
+Клиент Usedesk — общий для всей компании; почты, телефонов и мессенджеров в самой таблице нет (они в отдельных
+таблицах контактов, ещё не разобраны — запрос в разделе 9).
+
+| Usedesk | Relayo | Как переносим |
+|---|---|---|
+| `id` | `usedesk_id` (уже есть) | Ключ повторного импорта; по нему `tickets.client_id`, `chats.client_id`, `ticket_comments.client_id` находят клиента |
+| `company_id` | — | Отбор нашей компании |
+| `name` | `display_name` | Длиннее 200 символов — обрезаем. Имя видят операторы, им же подставляется `{client.name}` в автоответах |
+| `lang` | `locale` | Как есть (`ru`, `en`…), пустое — NULL |
+| `created_at` | `created_at` | NULL — дата первого тикета клиента |
+| `note` | `note` | Заметка для сотрудников (до 4000 символов, длиннее — обрезаем). Видна на странице клиента и в панели Inbox; нужна условию правил «Заметка клиента» (п. 3.6.1 ТЗ) |
+| `position` | `position` | Как есть, до 200 символов |
+| `vip` | `is_vip` | Как есть (столбец 18, добавлен) |
+| `spammer` | `is_spammer` | Как есть. Пока только пометка; блокировать сообщения спамеров — с чёрным списком |
+| `client_company_id` | — | Компании клиентов: в Relayo их нет (меню «Companies» — «Coming soon») |
+| `deleted_at` | — | Удалённых без перенесённых тикетов не переносим; с тикетами — переносим ради истории |
+| `avatar` | — | Аватар у нас — файл в S3 (`avatar_key`); картинки Usedesk не переносим |
+| `zendesk_id`, `updated_at` | — | Не нужно |
+
+### 2.10. `client_identity_map` → clientId сайта
+
+Здесь Usedesk хранит clientId, по которому сайт опознаёт клиента в виджете. Без него перенесённый клиент был бы
+без clientId, и при первом входе на сайте с новым виджетом Relayo создал бы второго клиента — история разделилась бы.
+
+| Usedesk | Relayo | Как переносим |
+|---|---|---|
+| `client_id` (varchar 255) | `clients.external_client_id` | clientId сайта — как есть. У нас до 128 символов и с учётом регистра: длину проверить запросом (раздел 9) |
+| `client_brand` | `clients.site_id` | Product сайта → наш сайт по коду (`sites.code`). Бренды, для которых сайта нет, перечислить заранее: завести сайты или сопоставить вручную |
+| `canonical_client_id` | `clients.usedesk_id` | id клиента Usedesk (внешний ключ на `clients.id`) |
+| `id` | — | Не нужно |
+
+Своего `company_id` у таблицы нет: отбор — через `clients.company_id`.
+
+**Клиенты Relayo из этой таблицы.** Каждая строка — клиент Relayo на сайте бренда с этим clientId (как после
+прямой передачи clientId). Он не подтверждён (`is_verified = 0`): первый `Relayo.identify(token)` с тем же clientId
+найдёт этого клиента и подтвердит его, так что история продолжится. Имя, язык, дата создания — из `clients` (2.9).
+
+**Один клиент Usedesk → несколько клиентов Relayo.** Если у клиента Usedesk строки с разными брендами, в Relayo
+это разные клиенты на разных сайтах (у нас клиент принадлежит сайту). Тикеты и чаты раскладываются по ним по сайту
+канала тикета (канал Usedesk → наш виджет, бот или номер → сайт). Поэтому уникальность `clients.usedesk_id`
+(сейчас уникален сам по себе, столбец 4 раздела 3) нужно заменить на уникальность пары (`usedesk_id`, `site_id`).
+
+**Несколько clientId у одного клиента на одном сайте** (уникален только `(client_id, client_brand)`, так бывает
+после объединения клиентов в Usedesk). У клиента Relayo один clientId, поэтому: основной — по последнему тикету,
+остальные — отдельными клиентами без истории или пропустить. Решить по количеству (запрос в разделе 9).
+
+**Клиенты без строки в таблице** — те, кто писал только в мессенджер или анонимно в виджет. Переносятся без
+clientId на сайт канала тикета, с идентичностями из каналов: токен виджета (`chats.token`), чат Telegram, номер
+WhatsApp.
+
+### 2.11. `user_groups` → `agent_groups`
+
+Группы сотрудников (отделы). Их немного — переносятся страницей импорта, **до сотрудников**: тогда сотрудникам
+сразу проставляются группы. Раздела «Groups» на странице импорта пока нет (раздел 5.1).
+
+| Usedesk | Relayo | Как переносим |
+|---|---|---|
+| `id` | `agent_groups.usedesk_id` | Столбец 17 (добавлен): повторный импорт без дублей; по нему `users.user_group_id`, `users.default_group`, `tickets.group`, `company_email_channels.group_id` находят группу |
+| `name` | `name` | У нас до 100 символов и уникально: длиннее — обрезаем, совпадение с уже заведённой группой — привязываем к ней, а не создаём вторую |
+| `company_id` | — | Отбор нашей компании |
+| `deleted`, `deleted_at` | — | Удалённые группы не переносим. Если на них ссылаются перенесённые тикеты, у таких тикетов группа будет пустой — либо перенести их с пометкой в имени; решить по количеству (запрос в разделе 9) |
+| `is_demo` | — | Демо-группы не переносим |
+| `custom_working_time`, `timezone` | — | Своё рабочее время группы: понадобится вместе с рабочими часами (п. 3.5, 3.6 ТЗ) |
+| `client_personal_data_access` | — | Скрывать от группы персональные данные клиентов: в Relayo такого ограничения нет; если где-то выключено — решить, нужно ли |
+| `is_workflow_enabled` | — | Не нужно |
+
 ## 3. Какие столбцы добавить в Relayo
 
 По убыванию важности. Миграцией EF, как обычно; у новых NOT NULL столбцов — значение по умолчанию.
 
-**Столбцы 1–10 добавлены** миграцией `UsedeskMigrationColumns` (26.11.2026). Вместе с ними: внутренние заметки
+**Столбцы 1–10 и 16–20 добавлены**, у столбца 4 уникальность — пара (`usedesk_id`, `site_id`); все миграции до первого
+выпуска объединены в одну `Initial` (26.11.2026). Вместе с ними: внутренние заметки
 операторов (вкладка «Comment» у поля ответа), выбор группы в карточке тикета, тема и пометка «Imported from Usedesk»
 в карточке, страница сайта у чата (виджет передаёт её с каждым сообщением, у чата запоминается первая).
 Проверка на стенде — `tools/checks/notes.cjs`. Столбцы 11–15 — по решению, они не блокируют перенос.
@@ -241,7 +309,7 @@ CSAT и ботов. Импорт можно запускать повторно:
 | 1 | `messages.visibility` | `nvarchar(16)` NOT NULL, по умолчанию `Public` (`Public` / `Internal`) | `ticket_comments.type` (`private`, `info`, `log`, `error`, `merged` → `Internal`) | Без него перенос показывает клиентам служебные комментарии в истории виджета. Внутренние сообщения не уходят в виджет, Telegram и WhatsApp. Нужно и без миграции: заметки есть в Usedesk | Блокирует перенос |
 | 2 | `messages.usedesk_id` | `int` NULL, индекс `(usedesk_id, created_at)` | `ticket_comments.id` | Повторный импорт и догрузка без дублей. Таблица секционирована, поэтому уникальность — с датой | Блокирует перенос |
 | 3 | `chats.usedesk_id` | `bigint` NULL, уникальный (без NULL) | `chats.id` | То же для чатов | Блокирует перенос |
-| 4 | `clients.usedesk_id` | `bigint` NULL, уникальный (без NULL) | `tickets.client_id`, `chats.client_id` | Привязка тикетов и сообщений к клиенту, повторный импорт | Блокирует перенос |
+| 4 | `clients.usedesk_id` | `bigint` NULL, уникальна пара с `site_id` (без NULL) | `tickets.client_id`, `chats.client_id` | Привязка тикетов и сообщений к клиенту, повторный импорт | Блокирует перенос. Уникальна пара (`usedesk_id`, `site_id`): клиент Usedesk с несколькими брендами — несколько клиентов Relayo (2.10) |
 | 5 | `users.usedesk_id` | `int` NULL, уникальный (без NULL) | `users.id` | Автор сообщения (`ticket_comments.user_id`), назначенный (`assignee_id`) | Блокирует перенос |
 | 6 | `tickets.subject` | `nvarchar(255)` NULL | `tickets.subject` | Тема письма у почтовых тикетов; столбец списка, как в Usedesk | Высокая |
 | 7 | `tickets.source` | `nvarchar(16)` NOT NULL, по умолчанию `Relayo` (`Relayo` / `Usedesk`) | — | Пометка перенесённых: правила, отчёты, интерфейс | Высокая |
@@ -253,6 +321,11 @@ CSAT и ботов. Импорт можно запускать повторно:
 | 13 | `clients.email` | `nvarchar(320)` NULL | `chats.email` | Только если форма перед чатом нужна операторам | Низкая |
 | 14 | `whatsapp_channels.receive_group_chats` | `bit` NOT NULL, по умолчанию 0 | `pact_settings.group_chats` | Только если групповые чаты использовались | Низкая |
 | 15 | `tickets.source_status` | `nvarchar(32)` NULL | `ticket_statuses.key` | Исходный статус (Solved, Delivery) для разбора спорных случаев | Низкая |
+| 16 | `clients.note` | `nvarchar(4000)` NULL | `clients.note` | Заметка о клиенте для сотрудников; условие правил «Заметка клиента» (добавлен) | Средняя |
+| 17 | `agent_groups.usedesk_id` | `int` NULL, уникальный (без NULL) | `user_groups.id` | Группы сотрудников и тикетов при переносе, повторный импорт | Блокирует перенос групп (добавлен) |
+| 18 | `clients.is_vip` | `bit` NOT NULL, по умолчанию 0 | `clients.vip` | VIP-клиенты (добавлен) | Обязательно |
+| 19 | `clients.position` | `nvarchar(200)` NULL | `clients.position` | Должность клиента (добавлен) | Низкая |
+| 20 | `clients.is_spammer` | `bit` NOT NULL, по умолчанию 0 | `clients.spammer` | Пометка «Спамер» (добавлен) | Низкая |
 
 Номер тикета отдельного столбца не требует: `tickets.number` = id Usedesk.
 
@@ -261,6 +334,9 @@ CSAT и ботов. Импорт можно запускать повторно:
 1. **Секции сообщений за старые месяцы.** `MessagePartitions` создаёт секции только с прошлого месяца: до импорта
    добавить границы за весь период истории, иначе она ляжет в одну секцию.
 2. **Номера тикетов:** импорт с `IDENTITY_INSERT`, затем `DBCC CHECKIDENT` выше максимального номера.
+   Если Relayo начнёт принимать обращения раньше переноса истории, **до запуска** поднять счётчик номеров выше
+   максимального id тикета Usedesk (`AUTO_INCREMENT` таблицы `tickets` — 9 216 185 на момент DDL): иначе новые номера
+   совпадут с номерами старых тикетов, и перенести их под своими номерами не получится.
 3. **Значения канала** `Email`, `Call`, `Other` — не добавлены: исходный канал хранится в `tickets.source_channel`
    (раздел 2.2). Добавить, если понадобятся значки этих каналов в списке тикетов или условия правил по ним.
 4. **Русские тексты виджета** — до переключения.
@@ -325,7 +401,7 @@ Usedesk (сервер, БД, пользователь с правом чтени
 | Виджеты: проверка после импорта, картинка кнопки, приветствие, публикация | `usedesk_widget` | «Channels → Widget» |
 | Пункт WhatsApp виджета (номер известен после QR) | `messenger_settings.active_json` | «Настройка пунктов» на странице виджета |
 | Автоответы каналов | `company_email_channels.auto_reply_message`, `usedesk_widget.offline_answer` | Правила |
-| Группы | таблица групп | «Agents → Groups» |
+| Группы | `user_groups` | Страница импорта (раздел «Groups» — сделать, 2.11) |
 
 ## 8. Безопасность
 
@@ -354,7 +430,8 @@ Usedesk (сервер, БД, пользователь с правом чтени
 | Формат `users_guid_migration.duplicate_guid` | Один оператор: значение в таблице и `Get-ADUser <логин> \| select ObjectGUID` |
 | Ключ localStorage виджета Usedesk | DevTools на сайте с виджетом Usedesk |
 | Нужны ли теги, доп. поля, оценки; почта после переключения; статус Solved | Решение руководителя поддержки |
-| Ещё не разобраны | `clients` и их контакты, группы пользователей, приветствие виджета; таблица файлов — только если переносим вложения |
+| Бренды без сайта, длина clientId, несколько clientId на сайте, контакты клиента | Запросы «Клиенты» в конце раздела; DDL таблиц контактов (почта, телефоны) |
+| Ещё не разобраны | Контакты клиентов, группы пользователей, приветствие виджета; таблица файлов — только если переносим вложения |
 
 ```sql
 -- 1. Каналы и объём
@@ -397,6 +474,36 @@ SELECT is_inline, COUNT(*) FROM ticket_comment_attachments WHERE company_id = ? 
 SELECT COUNT(DISTINCT a.ticket_comment_id) FROM ticket_comment_attachments a
 JOIN ticket_comments c ON c.id = a.ticket_comment_id
 WHERE a.company_id = ? AND a.is_inline = 0 AND TRIM(c.message) = '';
+
+-- Клиенты: сколько, удалённые, заметки, компании, VIP и спамеры
+SELECT COUNT(*), SUM(deleted_at IS NOT NULL), SUM(note IS NOT NULL AND note <> ''),
+       SUM(client_company_id IS NOT NULL), SUM(vip), SUM(spammer)
+FROM clients WHERE company_id = ?;
+-- clientId сайтов: бренды (должны совпасть с кодами сайтов Relayo), длина clientId
+SELECT m.client_brand, COUNT(*), MAX(CHAR_LENGTH(m.client_id)), SUM(CHAR_LENGTH(m.client_id) > 128)
+FROM client_identity_map m JOIN clients c ON c.id = m.canonical_client_id
+WHERE c.company_id = ? GROUP BY m.client_brand;
+-- Клиенты с несколькими брендами и с несколькими clientId в одном бренде
+SELECT SUM(brands > 1), SUM(ids > brands) FROM (
+  SELECT m.canonical_client_id, COUNT(DISTINCT m.client_brand) brands, COUNT(*) ids
+  FROM client_identity_map m JOIN clients c ON c.id = m.canonical_client_id
+  WHERE c.company_id = ? GROUP BY m.canonical_client_id) x;
+-- Клиенты с тикетами, но без clientId (мессенджеры, анонимные посетители)
+SELECT COUNT(DISTINCT t.client_id) FROM tickets t
+LEFT JOIN client_identity_map m ON m.canonical_client_id = t.client_id
+WHERE t.company_id = ? AND m.id IS NULL;
+-- Группы: живые, удалённые, демо, своё рабочее время, ограничение персональных данных
+SELECT deleted > 0, is_demo, custom_working_time, client_personal_data_access, COUNT(*)
+FROM user_groups WHERE company_id = ? GROUP BY 1, 2, 3, 4;
+-- Тикеты, которые ссылаются на удалённые группы
+SELECT COUNT(*) FROM tickets t JOIN user_groups g ON g.id = t.`group`
+WHERE t.company_id = ? AND g.deleted > 0;
+-- Повторяющиеся имена живых групп (у нас имя уникально)
+SELECT name, COUNT(*) FROM user_groups WHERE company_id = ? AND deleted = 0 GROUP BY name HAVING COUNT(*) > 1;
+-- Таблица «сотрудник — группы», если сотрудник бывает в нескольких группах
+SHOW TABLES LIKE '%group%';
+-- Остальные таблицы клиентов (почта, телефоны) — прислать их DDL
+SHOW TABLES LIKE 'client%';
 
 -- Операторы
 SELECT u.role, u.deleted > 0, u.status, g.duplicate_guid IS NOT NULL, COUNT(*)

@@ -369,6 +369,54 @@ CREATE TABLE `ticket_comment_attachments` (
   KEY `updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `clients` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `position` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `company_id` int unsigned NOT NULL,
+  `zendesk_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `spammer` tinyint(1) NOT NULL DEFAULT '0',
+  `vip` tinyint(1) NOT NULL DEFAULT '0',
+  `client_company_id` int unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `lang` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `company_id_name` (`company_id`,`name`),
+  KEY `clients_client_company_id` (`client_company_id`),
+  KEY `company_id_created_at` (`company_id`,`created_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=19190210 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `client_identity_map` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `client_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `client_brand` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `canonical_client_id` bigint unsigned NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_client_identity` (`client_id`,`client_brand`),
+  KEY `idx_canonical_client_id` (`canonical_client_id`),
+  CONSTRAINT `fk_client_identity_map_client` FOREIGN KEY (`canonical_client_id`) REFERENCES `clients` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=70626 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `user_groups` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `company_id` int unsigned NOT NULL,
+  `deleted` tinyint unsigned DEFAULT '0',
+  `deleted_at` datetime NOT NULL,
+  `custom_working_time` tinyint(1) NOT NULL DEFAULT '0',
+  `timezone` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Europe/Moscow',
+  `is_demo` tinyint(1) DEFAULT '0',
+  `client_personal_data_access` tinyint(1) NOT NULL DEFAULT '1',
+  `is_workflow_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `company_id_deleted_custom_working_time` (`company_id`,`deleted`,`custom_working_time`),
+  KEY `is_demo` (`is_demo`)
+) ENGINE=InnoDB AUTO_INCREMENT=468 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Сопоставление пользователей Usedesk с objectGUID из LDAP. Столбцы — по описанию в docs/usedesk-migration.md
 -- (DDL этой таблицы не было): original_id = users.id, duplicate_guid — objectGUID строкой.
 CREATE TABLE `users_guid_migration` (

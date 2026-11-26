@@ -67,6 +67,13 @@ public sealed class S3FileStorage(StorageSettings? settings, ILogger<S3FileStora
             client!.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = s.WidgetsBucket, Key = name }, ct));
     }
 
+    public async Task DeleteAttachmentAsync(string key, CancellationToken ct)
+    {
+        var s = Settings();
+        await RunAsync($"delete {key}", () =>
+            client!.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = s.AttachmentsBucket, Key = key }, ct));
+    }
+
     public async Task PutAttachmentAsync(string key, byte[] content, string contentType, CancellationToken ct)
     {
         var s = Settings();

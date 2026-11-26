@@ -92,11 +92,16 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         b.Property(c => c.ExternalClientId).HasMaxLength(Client.ExternalIdMaxLength).IsCaseSensitive();
         b.Property(c => c.Locale).HasMaxLength(16);
         b.Property(c => c.DisplayName).HasMaxLength(Client.DisplayNameMaxLength);
+        b.Property(c => c.Position).HasMaxLength(Client.PositionMaxLength);
+        b.Property(c => c.Note).HasMaxLength(Client.NoteMaxLength);
+        b.Property(c => c.AvatarKey).HasMaxLength(Client.AvatarKeyMaxLength).IsCaseSensitive();
         b.Ignore(c => c.IsAnonymous);
         // У анонимных клиентов clientId пустой, уникальность только для заполненных.
         b.HasIndex(c => new { c.SiteId, c.ExternalClientId }).IsUnique()
             .HasFilter("external_client_id IS NOT NULL");
-        b.HasIndex(c => c.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
+        // Клиент Usedesk общий для компании, у нас клиент принадлежит сайту: клиент Usedesk с несколькими брендами
+        // становится несколькими клиентами Relayo (docs/usedesk-migration.md, 2.10). Уникальна пара.
+        b.HasIndex(c => new { c.UsedeskId, c.SiteId }).IsUnique().HasFilter("usedesk_id IS NOT NULL");
         b.HasOne<Site>().WithMany().HasForeignKey(c => c.SiteId).OnDelete(DeleteBehavior.Restrict);
     }
 }

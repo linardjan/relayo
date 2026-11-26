@@ -20,6 +20,7 @@ public static class ErrorCodes
     public const string TicketClosed = "ticket_closed";
     public const string AliasRequired = "alias_required";
     public const string ClientNotFound = "client_not_found";
+    public const string ClientIdTaken = "client_id_taken";
     public const string SiteNotFound = "site_not_found";
     public const string SiteCodeTaken = "site_code_taken";
     public const string KeyNotFound = "key_not_found";

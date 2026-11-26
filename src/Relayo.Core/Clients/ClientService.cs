@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Relayo.Core.Conversations;
 using Relayo.Core.Data;
+using Relayo.Core.Files;
+using Relayo.Core.Sites;
 
 namespace Relayo.Core.Clients;
 
@@ -15,7 +17,22 @@ public sealed record ClientSummary(
     int TicketCount,
     int OpenTicketCount,
     DateTimeOffset? LastActivityAt,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? DisplayName = null,
+    string? Position = null,
+    string? Note = null,
+    bool IsVip = false,
+    bool IsSpammer = false,
+    string? AvatarUrl = null);
+
+/// <summary>Сайт для выбора при создании клиента: без ключей и настроек, их видит только администратор.</summary>
+public sealed record ClientSiteOption(Guid Id, string Code, string Name);
+
+/// <summary>Карточка клиента, которую заполняют сотрудники. Пустые строки — «не указано».</summary>
+public sealed record ClientProfileInput(string? Name, string? Locale, string? Position, string? Note, bool IsVip, bool IsSpammer);
+
+/// <param name="ExternalClientId">clientId сайта. Пусто — клиент без clientId (найдётся по каналам).</param>
+public sealed record NewClientInput(Guid SiteId, string? ExternalClientId, ClientProfileInput Profile);
 
 public sealed record ClientPage(IReadOnlyList<ClientSummary> Items, int Total);
 
@@ -34,14 +51,115 @@ public sealed record ClientTicket(
     DateTimeOffset? ClosedAt,
     DateTimeOffset LastMessageAt,
     string LastMessagePreview,
-    IReadOnlyList<ClientChatInfo> Chats);
+    IReadOnlyList<ClientChatInfo> Chats,
+    string? Subject = null,
+    Channel Channel = Channel.Widget);
 
 public sealed record ClientDetails(ClientSummary Client, IReadOnlyList<IdentityView> Identities, IReadOnlyList<ClientTicket> Tickets);
 
 /// <summary>Раздел «Клиенты» админки.</summary>
-public sealed class ClientService(RelayoDbContext db)
+public sealed class ClientService(RelayoDbContext db, IFileStorage storage, TimeProvider time)
 {
     public const int MaxPageSize = 100;
+    public const int AvatarMaxBytes = 2 * 1024 * 1024;
+
+    private static readonly string[] AvatarTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+    public async Task<IReadOnlyList<ClientSiteOption>> SitesAsync(CancellationToken ct) =>
+        await db.Sites.AsNoTracking().OrderBy(s => s.Name).Select(s => new ClientSiteOption(s.Id, s.Code, s.Name)).ToListAsync(ct);
+
+    /// <summary>Клиент, заведённый сотрудником вручную. С clientId — тот же, кого потом передаст сайт.</summary>
+    public async Task<ClientDetails> CreateAsync(NewClientInput input, CancellationToken ct)
+    {
+        if (!await db.Sites.AnyAsync(s => s.Id == input.SiteId, ct))
+            throw new DomainException(ErrorCodes.SiteNotFound, "Site not found");
+        var externalId = input.ExternalClientId?.Trim();
+        Client client;
+        if (string.IsNullOrEmpty(externalId))
+        {
+            client = Client.CreateAnonymous(input.SiteId, time.GetUtcNow());
+        }
+        else
+        {
+            if (externalId.Length > Client.ExternalIdMaxLength)
+                throw new DomainException(ErrorCodes.InvalidInput, $"clientId must be up to {Client.ExternalIdMaxLength} characters");
+            if (await db.Clients.AnyAsync(c => c.SiteId == input.SiteId && c.ExternalClientId == externalId, ct))
+                throw new DomainException(ErrorCodes.ClientIdTaken, "A client with this clientId already exists on this site");
+            client = Client.CreateIdentified(input.SiteId, externalId, time.GetUtcNow());
+        }
+        Apply(client, input.Profile);
+        db.Clients.Add(client);
+        await db.SaveChangesAsync(ct);
+        return await GetAsync(client.Id, ct);
+    }
+
+    public async Task<ClientDetails> UpdateAsync(Guid clientId, ClientProfileInput input, CancellationToken ct)
+    {
+        var client = await FindAsync(clientId, ct);
+        Apply(client, input);
+        await db.SaveChangesAsync(ct);
+        return await GetAsync(clientId, ct);
+    }
+
+    /// <summary>Аватар — в закрытом бакете вложений: это персональные данные, показываются по временной ссылке.</summary>
+    public async Task<ClientDetails> SetAvatarAsync(Guid clientId, FileUpload upload, CancellationToken ct)
+    {
+        var client = await FindAsync(clientId, ct);
+        if (!storage.IsConfigured)
+            throw new DomainException(ErrorCodes.StorageNotConfigured, "File storage (S3) is not configured");
+        if (upload.Content.Length > AvatarMaxBytes)
+            throw new DomainException(ErrorCodes.AttachmentTooLarge, "The image must be up to 2 MB");
+        var file = AttachmentPolicy.Check([upload], new AttachmentLimits(AvatarMaxBytes, AvatarTypes)).Single();
+
+        var extension = file.ContentType.Split('/')[1].Replace("jpeg", "jpg");
+        var key = $"client-avatars/{client.Id:N}/{WidgetKeys.Create()}.{extension}";
+        await storage.PutAttachmentAsync(key, file.Content, file.ContentType, ct);
+        var previous = client.AvatarKey;
+        client.SetAvatar(key);
+        await db.SaveChangesAsync(ct);
+        if (previous is not null)
+            await storage.DeleteAttachmentAsync(previous, ct);
+        return await GetAsync(clientId, ct);
+    }
+
+    public async Task<ClientDetails> RemoveAvatarAsync(Guid clientId, CancellationToken ct)
+    {
+        var client = await FindAsync(clientId, ct);
+        if (client.AvatarKey is { } key)
+        {
+            client.SetAvatar(null);
+            await db.SaveChangesAsync(ct);
+            await storage.DeleteAttachmentAsync(key, ct);
+        }
+        return await GetAsync(clientId, ct);
+    }
+
+    /// <summary>
+    /// Удаляет клиента без переписки (например, заведённого по ошибке) вместе с его каналами. Клиента с тикетами
+    /// удалить нельзя: история обращений нужна, а объединение дублей — отдельная функция.
+    /// </summary>
+    public async Task DeleteAsync(Guid clientId, CancellationToken ct)
+    {
+        var client = await FindAsync(clientId, ct);
+        if (await db.Tickets.AnyAsync(t => t.ClientId == clientId, ct))
+            throw new DomainException(ErrorCodes.HasHistory, "The client has tickets and cannot be deleted");
+        db.ClientIdentities.RemoveRange(await db.ClientIdentities.Where(i => i.ClientId == clientId).ToListAsync(ct));
+        db.Clients.Remove(client);
+        await db.SaveChangesAsync(ct);
+        if (client.AvatarKey is { } key && storage.IsConfigured)
+            await storage.DeleteAttachmentAsync(key, ct);
+    }
+
+    private static void Apply(Client client, ClientProfileInput? input)
+    {
+        if (input is null)
+            throw new DomainException(ErrorCodes.InvalidInput, "Client details are required");
+        client.SetProfile(input.Name, input.Locale, input.Position, input.Note, input.IsVip, input.IsSpammer);
+    }
+
+    private async Task<Client> FindAsync(Guid clientId, CancellationToken ct) =>
+        await db.Clients.SingleOrDefaultAsync(c => c.Id == clientId, ct)
+        ?? throw new DomainException(ErrorCodes.ClientNotFound, "Client not found");
 
     public async Task<ClientPage> SearchAsync(string? search, Guid? siteId, bool includeAnonymous, int page, int pageSize,
         CancellationToken ct)
@@ -112,7 +230,7 @@ public sealed class ClientService(RelayoDbContext db)
             identities,
             tickets.Select(t => new ClientTicket(t.Ticket.Id, t.Ticket.Number, t.Ticket.Status, t.AssigneeName,
                 t.Ticket.CreatedAt, t.Ticket.ClosedAt, t.Ticket.LastMessageAt, t.Ticket.LastMessagePreview,
-                chatsByTicket[t.Ticket.Id].OrderBy(c => c.CreatedAt).ToList())).ToList());
+                chatsByTicket[t.Ticket.Id].OrderBy(c => c.CreatedAt).ToList(), t.Ticket.Subject, t.Ticket.LastClientChannel)).ToList());
     }
 
     private IQueryable<ClientRow> Project(IQueryable<Client> clients) =>
@@ -127,10 +245,19 @@ public sealed class ClientService(RelayoDbContext db)
             LastActivityAt = db.Tickets.Where(t => t.ClientId == c.Id).Max(t => (DateTimeOffset?)t.LastMessageAt),
         };
 
-    private static ClientSummary ToSummary(ClientRow r) => new(
+    private ClientSummary ToSummary(ClientRow r) => new(
         r.Client.Id, TicketService.ClientLabel(r.Client.Id, r.Client.ExternalClientId, r.Client.DisplayName), r.Client.SiteId, r.SiteCode,
         r.Client.ExternalClientId, r.Client.Locale, r.Client.IsVerified, r.TicketCount, r.OpenTicketCount,
-        r.LastActivityAt, r.Client.CreatedAt);
+        r.LastActivityAt, r.Client.CreatedAt, r.Client.DisplayName, r.Client.Position, r.Client.Note, r.Client.IsVip,
+        r.Client.IsSpammer, r.Client.AvatarKey is { } key ? storage.AttachmentUrl(key, "avatar", AvatarContentType(key)) : null);
+
+    private static string AvatarContentType(string key) => Path.GetExtension(key) switch
+    {
+        ".png" => "image/png",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        _ => "image/jpeg",
+    };
 
     private static string EscapeLike(string value) =>
         value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace("[", "\\[");

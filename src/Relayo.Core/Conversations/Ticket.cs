@@ -120,6 +120,16 @@ public sealed class Ticket
         UpdatedAt = now;
     }
 
+    /// <summary>Тему задаёт сотрудник на странице запроса (у почты — тема письма). Пустая — без темы.</summary>
+    public void SetSubject(string? subject, DateTimeOffset now)
+    {
+        subject = subject?.Trim();
+        if (subject is { Length: > SubjectMaxLength })
+            throw new DomainException(ErrorCodes.InvalidInput, $"Subject must be up to {SubjectMaxLength} characters");
+        Subject = string.IsNullOrEmpty(subject) ? null : subject;
+        UpdatedAt = now;
+    }
+
     /// <summary>Тикет возвращается в общую очередь.</summary>
     public void Unassign(DateTimeOffset now)
     {

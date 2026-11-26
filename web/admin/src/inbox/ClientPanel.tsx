@@ -43,13 +43,15 @@ export function ClientPanel({ details }: { details: TicketDetails }) {
           children: (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <PersonAvatar name={client.label} seed={client.id} size={44} />
+                <PersonAvatar name={client.label} seed={client.id} size={44} src={data?.client.avatarUrl} />
                 <div style={{ minWidth: 0 }}>
-                  <Link to={`/clients/${client.id}`} style={{ fontWeight: 500, wordBreak: 'break-word' }}>
+                  <Link to={`/clients/${client.id}/details`} style={{ fontWeight: 500, wordBreak: 'break-word' }}>
                     {client.label} <ExportOutlined style={{ fontSize: 11 }} />
                   </Link>
                   <div>
                     <ClientStatusTag {...client} />
+                    {data?.client.isVip && <Tag color="gold">VIP</Tag>}
+                    {data?.client.isSpammer && <Tag color="red">{t('clients.spammer')}</Tag>}
                   </div>
                 </div>
               </div>
@@ -57,7 +59,10 @@ export function ClientPanel({ details }: { details: TicketDetails }) {
                 <Descriptions.Item label={t('client.site')}>{client.siteCode}</Descriptions.Item>
                 <Descriptions.Item label="clientId">{client.externalClientId ?? '—'}</Descriptions.Item>
                 <Descriptions.Item label={t('clients.locale')}>{client.locale ?? '—'}</Descriptions.Item>
+                {data?.client.position && <Descriptions.Item label={t('clients.position')}>{data.client.position}</Descriptions.Item>}
               </Descriptions>
+              {/* Заметка о клиенте — то, что сотрудникам важно знать при ответе. */}
+              {data?.client.note && <div className="client-note">{data.client.note}</div>}
             </>
           ),
         },

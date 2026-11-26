@@ -40,7 +40,7 @@ const managers: Role[] = ['Admin', 'Supervisor']
 export const menu: MenuNode[] = [
   { key: '/search', label: 'nav.search', icon: <SearchOutlined /> },
   { key: '/', label: 'nav.inbox', icon: <MessageOutlined />, ready: true, accent: true },
-  { key: '/requests', label: 'nav.requests', icon: <MailOutlined />, accent: true },
+  { key: '/requests', label: 'nav.requests', icon: <MailOutlined />, ready: true, accent: true },
   { key: '/tags', label: 'nav.tags', icon: <TagOutlined /> },
   {
     key: 'group:clients',
@@ -48,7 +48,7 @@ export const menu: MenuNode[] = [
     icon: <IdcardOutlined />,
     children: [
       { key: '/clients', label: 'nav.clientList', ready: true },
-      { key: '/clients/new', label: 'nav.clientCreate' },
+      { key: '/clients/new', label: 'nav.clientCreate', ready: true },
       { key: '/companies', label: 'nav.companies' },
     ],
   },

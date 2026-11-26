@@ -19,9 +19,10 @@ function colorFor(seed: string): string {
   return palette[Math.abs(hash) % palette.length]!
 }
 
-export function PersonAvatar({ name, seed, size = 36 }: { name: string; seed?: string; size?: number }) {
+/** Аватар с инициалами; если есть картинка (аватар клиента), показывается она. */
+export function PersonAvatar({ name, seed, size = 36, src }: { name: string; seed?: string; size?: number; src?: string | null }) {
   return (
-    <Avatar size={size} style={{ background: colorFor(seed ?? name), flexShrink: 0, fontSize: size * 0.4 }}>
+    <Avatar size={size} src={src ?? undefined} style={{ background: src ? undefined : colorFor(seed ?? name), flexShrink: 0, fontSize: size * 0.4 }}>
       {initials(name)}
     </Avatar>
   )

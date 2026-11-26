@@ -1,13 +1,18 @@
+using System.Text.RegularExpressions;
+
 namespace Relayo.Core.Clients;
 
 /// <summary>
 /// Клиент. Пока посетитель не авторизовался на сайте, это анонимный клиент без clientId.
 /// После идентификации клиента определяет пара (сайт, clientId).
 /// </summary>
-public sealed class Client
+public sealed partial class Client
 {
     public const int ExternalIdMaxLength = 128;
     public const int DisplayNameMaxLength = 200;
+    public const int PositionMaxLength = 200;
+    public const int NoteMaxLength = 4000;
+    public const int AvatarKeyMaxLength = 200;
 
     private Client()
     {
@@ -31,6 +36,21 @@ public sealed class Client
     /// </summary>
     public bool IsVerified { get; private set; }
 
+    /// <summary>VIP-клиент: отмечают сотрудники, переносится из Usedesk (clients.vip).</summary>
+    public bool IsVip { get; private set; }
+
+    /// <summary>Спамер: отмечают сотрудники. Пока только пометка; блокировка — с чёрным списком.</summary>
+    public bool IsSpammer { get; private set; }
+
+    /// <summary>Должность клиента — важна, когда общение идёт по бизнесу.</summary>
+    public string? Position { get; private set; }
+
+    /// <summary>Заметка для сотрудников: что важно знать при обработке обращений клиента. Клиент её не видит.</summary>
+    public string? Note { get; private set; }
+
+    /// <summary>Ключ картинки аватара в закрытом бакете вложений S3. Показывается по временной ссылке.</summary>
+    public string? AvatarKey { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>id клиента в Usedesk: к нему привязываются перенесённые тикеты и чаты.</summary>
@@ -45,6 +65,43 @@ public sealed class Client
         new() { SiteId = siteId, ExternalClientId = externalClientId, CreatedAt = now };
 
     public void MarkVerified() => IsVerified = true;
+
+    public void SetVip(bool vip) => IsVip = vip;
+
+    /// <summary>
+    /// Карточка клиента, которую заполняют сотрудники. Пустые строки — «не указано». Имя из мессенджера
+    /// потом не перезаписывает введённое сотрудником (<see cref="SetDisplayNameIfEmpty"/>).
+    /// </summary>
+    public void SetProfile(string? name, string? locale, string? position, string? note, bool vip, bool spammer)
+    {
+        DisplayName = Optional(name, DisplayNameMaxLength, "Name");
+        Position = Optional(position, PositionMaxLength, "Position");
+        Note = Optional(note, NoteMaxLength, "Note");
+        locale = locale?.Trim();
+        if (string.IsNullOrEmpty(locale))
+            Locale = null;
+        else if (LocalePattern().IsMatch(locale))
+            Locale = locale.ToLowerInvariant();
+        else
+            throw new DomainException(ErrorCodes.InvalidInput, "Language must look like ru or en-US");
+        IsVip = vip;
+        IsSpammer = spammer;
+    }
+
+    public void SetAvatar(string? key) => AvatarKey = key;
+
+    private static string? Optional(string? value, int max, string field)
+    {
+        value = value?.Trim();
+        if (string.IsNullOrEmpty(value))
+            return null;
+        if (value.Length > max)
+            throw new DomainException(ErrorCodes.InvalidInput, $"{field} must be up to {max} characters");
+        return value;
+    }
+
+    [GeneratedRegex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")]
+    private static partial Regex LocalePattern();
 
     public void SetLocale(string? locale)
     {
