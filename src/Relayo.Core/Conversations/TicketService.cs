@@ -28,6 +28,28 @@ public sealed record TicketSummary(
 
 public sealed record GroupOption(Guid Id, string Name);
 
+/// <summary>Сотрудник, которому можно назначить запрос. ФИО видят только сотрудники.</summary>
+public sealed record AgentOption(Guid Id, string FullName, string? Alias, OperatorStatus Status);
+
+/// <summary>
+/// Фильтры раздела «Запросы». <paramref name="Assignee"/>: «me», «none» или id сотрудника.
+/// Даты — границы по созданию и последнему обновлению (последнему сообщению).
+/// </summary>
+public sealed record TicketFilter(
+    IReadOnlyList<TicketStatus>? Statuses = null,
+    Channel? Channel = null,
+    string? Assignee = null,
+    Guid? GroupId = null,
+    Guid? SiteId = null,
+    Guid? ClientId = null,
+    string? Search = null,
+    DateTimeOffset? CreatedFrom = null,
+    DateTimeOffset? CreatedTo = null,
+    DateTimeOffset? UpdatedFrom = null,
+    DateTimeOffset? UpdatedTo = null);
+
+public sealed record TicketPage(IReadOnlyList<TicketSummary> Items, int Total);
+
 public sealed record ClientCard(Guid Id, string Label, string SiteCode, string? ExternalClientId, string? Locale,
     bool IsVerified);
 
@@ -89,6 +111,135 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         var rows = await query.OrderByDescending(s => s.Ticket.LastMessageAt).Take(ListLimit).ToListAsync(ct);
         return rows.Select(ToSummary).ToList();
     }
+
+    public const int MaxPageSize = 100;
+
+    /// <summary>Раздел «Запросы»: все тикеты с фильтрами, новые сверху (по последнему сообщению).</summary>
+    public async Task<TicketPage> SearchAsync(TicketFilter f, Guid currentUserId, int page, int pageSize, CancellationToken ct)
+    {
+        pageSize = Math.Clamp(pageSize, 1, MaxPageSize);
+        page = Math.Max(page, 1);
+        // Тикеты, закрытые объединением, пустые: их чаты перенесены в другой тикет.
+        var q = Summaries().Where(s => s.Ticket.MergedIntoId == null);
+        if (f.Statuses is { Count: > 0 } statuses)
+            q = q.Where(s => statuses.Contains(s.Ticket.Status));
+        if (f.Channel is { } channel)
+            q = q.Where(s => s.Ticket.LastClientChannel == channel);
+        if (f.Assignee == "me")
+            q = q.Where(s => s.Ticket.AssigneeId == currentUserId);
+        else if (f.Assignee == "none")
+            q = q.Where(s => s.Ticket.AssigneeId == null);
+        else if (Guid.TryParse(f.Assignee, out var assigneeId))
+            q = q.Where(s => s.Ticket.AssigneeId == assigneeId);
+        if (f.GroupId is { } groupId)
+            q = q.Where(s => s.Ticket.GroupId == groupId);
+        if (f.SiteId is { } siteId)
+            q = q.Where(s => s.SiteId == siteId);
+        if (f.ClientId is { } clientId)
+            q = q.Where(s => s.ClientId == clientId);
+        if (f.CreatedFrom is { } cf)
+            q = q.Where(s => s.Ticket.CreatedAt >= cf);
+        if (f.CreatedTo is { } ctTo)
+            q = q.Where(s => s.Ticket.CreatedAt < ctTo);
+        if (f.UpdatedFrom is { } uf)
+            q = q.Where(s => s.Ticket.LastMessageAt >= uf);
+        if (f.UpdatedTo is { } ut)
+            q = q.Where(s => s.Ticket.LastMessageAt < ut);
+        if (!string.IsNullOrWhiteSpace(f.Search))
+        {
+            var text = f.Search.Trim().TrimStart('#');
+            var pattern = "%" + text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace("[", "\\[") + "%";
+            var number = long.TryParse(text, out var n) ? n : -1;
+            // Пока без полнотекстового поиска по сообщениям: номер, тема, последнее сообщение, имя и clientId клиента.
+            q = q.Where(s => s.Ticket.Number == number
+                             || (s.Ticket.Subject != null && EF.Functions.Like(s.Ticket.Subject, pattern, "\\"))
+                             || EF.Functions.Like(s.Ticket.LastMessagePreview, pattern, "\\")
+                             || (s.DisplayName != null && EF.Functions.Like(s.DisplayName, pattern, "\\"))
+                             || (s.ExternalClientId != null && EF.Functions.Like(
+                                 EF.Functions.Collate(s.ExternalClientId, SqlCollations.CaseInsensitive), pattern, "\\")));
+        }
+
+        var total = await q.CountAsync(ct);
+        var rows = await q.OrderByDescending(s => s.Ticket.LastMessageAt)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new TicketPage(rows.Select(ToSummary).ToList(), total);
+    }
+
+    /// <summary>Сотрудники, которым можно назначить запрос: не заблокированные.</summary>
+    public async Task<IReadOnlyList<AgentOption>> ListAgentsAsync(CancellationToken ct) =>
+        await db.Users.AsNoTracking().Where(u => !u.IsBlocked).OrderBy(u => u.FullName)
+            .Select(u => new AgentOption(u.Id, u.FullName, u.Alias, u.Status)).ToListAsync(ct);
+
+    /// <summary>
+    /// Статус вручную, со страницы запроса. Закрытый запрос не открывается снова: новое сообщение клиента
+    /// создаст новый запрос (п. 3.2 ТЗ).
+    /// </summary>
+    public async Task<TicketSummary> SetStatusAsync(Guid ticketId, TicketStatus status, CancellationToken ct)
+    {
+        if (!Enum.IsDefined(status))
+            throw new DomainException(ErrorCodes.InvalidInput, "Unknown status");
+        var ticket = await FindAsync(ticketId, ct);
+        if (!ticket.IsOpen && status != TicketStatus.Closed)
+            throw new DomainException(ErrorCodes.TicketClosed, "A closed ticket cannot be reopened: the client's next message opens a new one");
+        if (ticket.Status != status)
+        {
+            ticket.SetStatus(status, time.GetUtcNow());
+            await db.SaveChangesAsync(ct);
+        }
+        return await GetSummaryAsync(ticketId, ct);
+    }
+
+    public async Task<TicketSummary> SetSubjectAsync(Guid ticketId, string? subject, CancellationToken ct)
+    {
+        var ticket = await FindAsync(ticketId, ct);
+        ticket.SetSubject(subject, time.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+        return await GetSummaryAsync(ticketId, ct);
+    }
+
+    /// <summary>Назначить сотруднику или вернуть в очередь (null). Кто кому может назначать — решает API.</summary>
+    public async Task<TicketSummary> SetAssigneeAsync(Guid ticketId, Guid? assigneeId, CancellationToken ct)
+    {
+        var ticket = await FindAsync(ticketId, ct);
+        if (!ticket.IsOpen)
+            throw new DomainException(ErrorCodes.TicketClosed, "Ticket is closed");
+        if (assigneeId is { } id)
+        {
+            if (!await db.Users.AnyAsync(u => u.Id == id && !u.IsBlocked, ct))
+                throw new DomainException(ErrorCodes.UserNotFound, "Agent not found or blocked");
+            if (ticket.AssigneeId != id)
+                ticket.Assign(id, time.GetUtcNow());
+        }
+        else if (ticket.AssigneeId is not null)
+        {
+            ticket.Unassign(time.GetUtcNow());
+        }
+        await db.SaveChangesAsync(ct);
+        return await GetSummaryAsync(ticketId, ct);
+    }
+
+    /// <summary>
+    /// «Взять запрос»: самый старый открытый запрос без исполнителя. Блокировка не даёт двум операторам
+    /// взять один и тот же запрос. null — свободных нет.
+    /// </summary>
+    public async Task<TicketSummary?> TakeNextAsync(Guid operatorId, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.LockAsync("take-next-ticket", ct);
+        var ticket = await db.Tickets
+            .Where(t => t.Status != TicketStatus.Closed && t.AssigneeId == null && t.MergedIntoId == null)
+            .OrderBy(t => t.CreatedAt).FirstOrDefaultAsync(ct);
+        if (ticket is null)
+            return null;
+        ticket.Assign(operatorId, time.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return await GetSummaryAsync(ticket.Id, ct);
+    }
+
+    private async Task<Ticket> FindAsync(Guid ticketId, CancellationToken ct) =>
+        await db.Tickets.SingleOrDefaultAsync(t => t.Id == ticketId, ct)
+        ?? throw new DomainException(ErrorCodes.TicketNotFound, "Ticket not found");
 
     public async Task<TicketSummary> GetSummaryAsync(Guid ticketId, CancellationToken ct)
     {
@@ -301,6 +452,7 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
             Locale = c.Locale,
             ClientVerified = c.IsVerified,
             SiteCode = s.Code,
+            SiteId = s.Id,
             AssigneeName = u == null ? null : u.FullName,
             GroupName = g == null ? null : g.Name,
         };
@@ -312,8 +464,9 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         r.Ticket.LastClientChannel, r.Ticket.Subject, r.Ticket.Source, r.Ticket.SourceChannel, r.Ticket.GroupId,
         r.GroupName);
 
+    /// <summary>Как клиент подписан у сотрудников: имя (введённое сотрудником или из мессенджера), иначе clientId.</summary>
     internal static string ClientLabel(Guid clientId, string? externalClientId, string? displayName) =>
-        externalClientId ?? displayName ?? $"Visitor {clientId.ToString("N")[^6..]}";
+        displayName ?? externalClientId ?? $"Visitor {clientId.ToString("N")[^6..]}";
 
     private sealed class SummaryRow
     {
@@ -330,6 +483,8 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         public bool ClientVerified { get; init; }
 
         public required string SiteCode { get; init; }
+
+        public Guid SiteId { get; init; }
 
         public string? AssigneeName { get; init; }
 

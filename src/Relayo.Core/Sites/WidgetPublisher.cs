@@ -23,6 +23,9 @@ public interface IFileStorage
     /// <summary>Читает вложение: например, чтобы отправить его в Telegram.</summary>
     Task<byte[]> ReadAttachmentAsync(string key, CancellationToken ct);
 
+    /// <summary>Удаляет файл из закрытого бакета вложений (например, заменённый аватар клиента).</summary>
+    Task DeleteAttachmentAsync(string key, CancellationToken ct);
+
     /// <summary>Временная ссылка на скачивание вложения или null, если хранилище не настроено.</summary>
     string? AttachmentUrl(string key, string fileName, string contentType);
 }

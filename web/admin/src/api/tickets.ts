@@ -83,7 +83,44 @@ export interface TicketDetails {
   chats: ChatView[]
 }
 
+export interface AgentOption {
+  id: string
+  fullName: string
+  alias: string | null
+  status: 'Offline' | 'Online' | 'Break'
+}
+
+/** Фильтры раздела «Запросы». assignee: me, none или id сотрудника. */
+export interface TicketFilter {
+  statuses?: TicketStatus[]
+  channel?: Channel
+  assignee?: string
+  groupId?: string
+  siteId?: string
+  clientId?: string
+  search?: string
+  createdFrom?: string
+  updatedFrom?: string
+}
+
 export const ticketsApi = {
+  search: (f: TicketFilter, page: number, pageSize: number) => {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+    for (const s of f.statuses ?? []) params.append('status', s)
+    for (const key of ['channel', 'assignee', 'groupId', 'siteId', 'clientId', 'search', 'createdFrom', 'updatedFrom'] as const)
+      if (f[key]) params.set(key, f[key])
+    return api<{ items: TicketSummary[]; total: number }>(`/api/tickets/search?${params}`)
+  },
+  agents: () => api<AgentOption[]>('/api/tickets/agents'),
+  /** Самый старый свободный запрос; undefined — свободных нет. */
+  takeNext: () => api<TicketSummary | undefined>('/api/tickets/take-next', { method: 'POST' }),
+  setStatus: (id: string, status: TicketStatus) =>
+    api<TicketSummary>(`/api/tickets/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  setSubject: (id: string, subject: string | null) =>
+    api<TicketSummary>(`/api/tickets/${id}/subject`, { method: 'PUT', body: JSON.stringify({ subject }) }),
+  /** null — вернуть в очередь. */
+  setAssignee: (id: string, userId: string | null) =>
+    api<TicketSummary>(`/api/tickets/${id}/assignee`, { method: 'PUT', body: JSON.stringify({ userId }) }),
   list: (closed: boolean) => api<TicketSummary[]>(`/api/tickets?closed=${closed}`),
   get: (id: string) => api<TicketDetails>(`/api/tickets/${id}`),
   reply: (id: string, chatId: string, text: string, files: File[] = []) => post(`/api/tickets/${id}/messages`, chatId, text, files),

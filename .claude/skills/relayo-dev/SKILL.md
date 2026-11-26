@@ -68,6 +68,8 @@ Internal применяет миграции и DevSeed при старте; Pub
 | Realtime (SignalR) оператора и посетителя | `node tools/checks/realtime.cjs` |
 | Правила: API | `node tools/checks/rules.cjs` |
 | Правила: движок, таймеры, лимиты, журнал | `node tools/checks/engine.cjs` |
+| Клиенты: карточка, аватар в S3, поиск, удаление | `node tools/checks/clients.cjs` |
+| Запросы: фильтры, тема, статус, назначение, «Взять запрос» | `node tools/checks/requests.cjs` |
 | Почтовый канал: настройки и проверка входа на поддельные IMAP/SMTP | `node tools/checks/email.cjs` |
 | Импорт из Usedesk (тестовая MySQL: `docker compose --profile usedesk up -d usedesk-mysql`) | `node tools/checks/usedesk-import.cjs` |
 | Telegram (обновления подделываются через вебхук Public) | `node tools/checks/telegram.cjs` |

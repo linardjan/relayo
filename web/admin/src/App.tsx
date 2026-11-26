@@ -4,6 +4,9 @@ import type { ReactNode } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { InboxStateProvider } from './inbox/InboxState'
 import { AppLayout } from './layout/AppLayout'
+import { ClientDetailsPage } from './pages/ClientDetailsPage'
+import { RequestPage } from './pages/RequestPage'
+import { RequestsPage } from './pages/RequestsPage'
 import { ClientPage } from './pages/ClientPage'
 import { ClientsPage } from './pages/ClientsPage'
 import { InboxPage } from './pages/InboxPage'
@@ -59,8 +62,12 @@ export default function App() {
       >
         <Route index element={<InboxPage />} />
         <Route path="tickets/:ticketId" element={<InboxPage />} />
+        <Route path="requests" element={<RequestsPage />} />
+        <Route path="requests/:ticketId" element={<RequestPage />} />
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="clients/new" element={<ClientPage />} />
         <Route path="clients/:clientId" element={<ClientPage />} />
+        <Route path="clients/:clientId/details" element={<ClientDetailsPage />} />
         {/* Разделы администратора */}
         <Route path="agents" element={<RequireAdmin><AgentsPage /></RequireAdmin>} />
         <Route path="agents/new" element={<RequireAdmin><AgentPage /></RequireAdmin>} />

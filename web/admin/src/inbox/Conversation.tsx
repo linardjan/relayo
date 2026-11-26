@@ -1,6 +1,6 @@
 import { Alert, App as AntApp, Button, Empty, Image, Input, Popover, Tabs, Tag, Tooltip } from 'antd'
 import { CheckCircleOutlined, EyeInvisibleOutlined, FileOutlined, PaperClipOutlined, RobotOutlined, SmileOutlined, SnippetsOutlined, WarningOutlined } from '@ant-design/icons'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../api/client'
 import { ticketsApi, type Attachment, type Channel, type ChatView, type OperatorMessage, type TicketDetails } from '../api/tickets'
@@ -151,7 +151,7 @@ function MessageItem({ message: m, clientLabel, clientSeed }: { message: Operato
 }
 
 /** Картинки — превью с увеличением, остальное — ссылки на скачивание с размером. */
-function MessageAttachments({ items }: { items?: Attachment[] | null }) {
+export function MessageAttachments({ items }: { items?: Attachment[] | null }) {
   if (!items?.length) return null
   const images = items.filter((a) => a.url && a.contentType.startsWith('image/'))
   const files = items.filter((a) => !images.includes(a))
@@ -184,14 +184,17 @@ const emojis = ['🙂', '😊', '😉', '🙏', '👍', '👌', '👋', '🤝', 
 /** Не больше файлов в одном сообщении: столько же принимает сервер. */
 const MAX_FILES = 10
 
-type ComposerMode = 'message' | 'comment'
+export type ComposerMode = 'message' | 'comment'
 
-function Composer({
+/** Поле ответа: сообщение клиенту или внутренняя заметка, файлы, эмодзи. extra — элементы слева от кнопки отправки. */
+export function Composer({
   onSend,
   replyChannel,
+  extra,
 }: {
   onSend: (mode: ComposerMode, text: string, files: File[]) => Promise<boolean>
   replyChannel: Channel
+  extra?: ReactNode
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -328,9 +331,12 @@ function Composer({
             <Button type="text" icon={<SmileOutlined />} aria-label={t('ticket.emoji')} />
           </Popover>
         </div>
-        <Button type="primary" onClick={send} loading={sending} disabled={!canSend}>
-          {t(isNote ? 'ticket.addNote' : 'ticket.send')}
-        </Button>
+        <div className="composer-send">
+          {extra}
+          <Button type="primary" onClick={send} loading={sending} disabled={!canSend}>
+            {t(isNote ? 'ticket.addNote' : 'ticket.send')}
+          </Button>
+        </div>
       </div>
     </div>
   )

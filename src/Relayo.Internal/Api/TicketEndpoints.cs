@@ -18,6 +18,13 @@ public sealed record SetAliasRequest(string Alias);
 
 public sealed record SetGroupRequest(Guid? GroupId);
 
+public sealed record SetTicketStatusRequest(TicketStatus Status);
+
+public sealed record SetSubjectRequest(string? Subject);
+
+/// <param name="UserId">Кому назначить; null — вернуть в очередь.</param>
+public sealed record SetAssigneeRequest(Guid? UserId);
+
 internal static class TicketEndpoints
 {
     public static RouteGroupBuilder MapTicketEndpoints(this RouteGroupBuilder api)
@@ -26,6 +33,28 @@ internal static class TicketEndpoints
 
         tickets.MapGet("/", (TicketService service, bool? closed, CancellationToken ct) =>
             service.ListAsync(open: closed != true, ct));
+
+        // Раздел «Запросы»: все тикеты с фильтрами и постранично. status можно передать несколько раз.
+        tickets.MapGet("/search", (TicketService service, ClaimsPrincipal user, [FromQuery] TicketStatus[]? status,
+                Channel? channel, string? assignee, Guid? groupId, Guid? siteId, Guid? clientId, string? search,
+                DateTimeOffset? createdFrom, DateTimeOffset? createdTo, DateTimeOffset? updatedFrom, DateTimeOffset? updatedTo,
+                int? page, int? pageSize, CancellationToken ct) =>
+            service.SearchAsync(new TicketFilter(status, channel, assignee, groupId, siteId, clientId, search, createdFrom,
+                createdTo, updatedFrom, updatedTo), UserId(user), page ?? 1, pageSize ?? 25, ct));
+
+        tickets.MapGet("/agents", (TicketService service, CancellationToken ct) => service.ListAgentsAsync(ct));
+
+        // «Взять запрос»: самый старый свободный. 204 — свободных нет.
+        tickets.MapPost("/take-next", async (ClaimsPrincipal user, TicketService service, OperatorNotifier operators,
+            AutomationEvents automation, CancellationToken ct) =>
+        {
+            var summary = await service.TakeNextAsync(UserId(user), ct);
+            if (summary is null)
+                return Results.NoContent();
+            await operators.TicketChangedAsync(summary);
+            await automation.OperatorActionAsync(summary.Id, "ticket_assigned", TicketStatus.New, summary.Status);
+            return Results.Ok(summary);
+        });
 
         tickets.MapGet("/{id:guid}", (Guid id, TicketService service, CancellationToken ct) =>
             service.GetAsync(id, ct));
@@ -70,6 +99,56 @@ internal static class TicketEndpoints
             var summary = await service.SetGroupAsync(id, request.GroupId, ct);
             await operators.TicketChangedAsync(summary);
             return summary;
+        });
+
+        tickets.MapPut("/{id:guid}/status", async (Guid id, SetTicketStatusRequest request, TicketService service,
+            OperatorNotifier operators, AutomationEvents automation, CancellationToken ct) =>
+        {
+            var before = await service.GetStatusAsync(id, ct);
+            var summary = await service.SetStatusAsync(id, request.Status, ct);
+            await operators.TicketChangedAsync(summary);
+            if (before != summary.Status)
+            {
+                // Закрытие — ещё и событие ticket_closed; status_changed правила получают в обоих случаях один раз.
+                if (summary.Status == TicketStatus.Closed)
+                    await automation.OperatorActionAsync(id, "ticket_closed", before, summary.Status);
+                else
+                    await automation.OperatorActionAsync(id, "status_changed", null, summary.Status);
+            }
+            return summary;
+        });
+
+        tickets.MapPut("/{id:guid}/subject", async (Guid id, SetSubjectRequest request, TicketService service,
+            OperatorNotifier operators, CancellationToken ct) =>
+        {
+            var summary = await service.SetSubjectAsync(id, request.Subject, ct);
+            await operators.TicketChangedAsync(summary);
+            return summary;
+        });
+
+        // Назначить другому сотруднику могут администратор и супервизор; оператор — только себе или вернуть свой в очередь.
+        tickets.MapPut("/{id:guid}/assignee", async (Guid id, SetAssigneeRequest request, ClaimsPrincipal user,
+            TicketService service, OperatorNotifier operators, AutomationEvents automation, CancellationToken ct) =>
+        {
+            var me = UserId(user);
+            var canAssignOthers = user.IsInRole(nameof(Relayo.Core.Users.UserRole.Admin))
+                                  || user.IsInRole(nameof(Relayo.Core.Users.UserRole.Supervisor));
+            if (!canAssignOthers)
+            {
+                var current = await service.GetSummaryAsync(id, ct);
+                var allowed = request.UserId == me || (request.UserId is null && current.AssigneeId == me);
+                if (!allowed)
+                    return Results.Problem(statusCode: StatusCodes.Status403Forbidden,
+                        title: "Only administrators and supervisors can assign tickets to other agents");
+            }
+            var before = await service.GetStatusAsync(id, ct);
+            var summary = await service.SetAssigneeAsync(id, request.UserId, ct);
+            await operators.TicketChangedAsync(summary);
+            if (request.UserId is not null)
+                await automation.OperatorActionAsync(id, "ticket_assigned", before, summary.Status);
+            else if (before != summary.Status)
+                await automation.OperatorActionAsync(id, "status_changed", null, summary.Status);
+            return Results.Ok(summary);
         });
 
         tickets.MapPost("/{id:guid}/assign", async (Guid id, ClaimsPrincipal user, TicketService service,

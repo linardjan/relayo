@@ -23,6 +23,11 @@ public sealed class AgentGroup
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>id группы в Usedesk (user_groups.id): по нему перенесённые сотрудники и тикеты находят группу.</summary>
+    public int? UsedeskId { get; private set; }
+
+    public void LinkUsedesk(int usedeskId) => UsedeskId = usedeskId;
+
     public void Rename(string name)
     {
         name = name.Trim();
