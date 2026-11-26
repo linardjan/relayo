@@ -35,6 +35,7 @@ public sealed record WidgetView(
     WidgetPosition Position,
     string DefaultLocale,
     Guid? TelegramBotId,
+    Guid? WhatsAppChannelId,
     DateTimeOffset CreatedAt,
     string PublicKey,
     int? PublishedVersion,
@@ -52,10 +53,12 @@ public sealed record WidgetInput(
     WidgetPosition Position,
     string DefaultLocale,
     Guid? TelegramBotId = null,
-    WidgetOptions? Options = null);
+    WidgetOptions? Options = null,
+    Guid? WhatsAppChannelId = null);
 
 /// <summary>Сколько открытых тикетов идёт через каждый канал: число на плитке канала.</summary>
-public sealed record ChannelCounts(IReadOnlyDictionary<Guid, int> Widgets, IReadOnlyDictionary<Guid, int> TelegramBots);
+public sealed record ChannelCounts(IReadOnlyDictionary<Guid, int> Widgets, IReadOnlyDictionary<Guid, int> TelegramBots,
+    IReadOnlyDictionary<Guid, int> WhatsAppChannels);
 
 /// <summary>Настройки сайтов, ключей и виджетов (раздел «Настройки», только администратор).</summary>
 public sealed partial class SiteSettingsService(
@@ -143,6 +146,8 @@ public sealed partial class SiteSettingsService(
             rows.Where(r => r.WidgetId != null).GroupBy(r => r.WidgetId!.Value)
                 .ToDictionary(g => g.Key, g => g.Select(r => r.TicketId).Distinct().Count()),
             rows.Where(r => r.Type == Clients.IdentityType.Telegram && r.ChannelId != null).GroupBy(r => r.ChannelId!.Value)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.TicketId).Distinct().Count()),
+            rows.Where(r => r.Type == Clients.IdentityType.WhatsApp && r.ChannelId != null).GroupBy(r => r.ChannelId!.Value)
                 .ToDictionary(g => g.Key, g => g.Select(r => r.TicketId).Distinct().Count()));
     }
 
@@ -152,7 +157,7 @@ public sealed partial class SiteSettingsService(
         await db.Widgets.AsNoTracking()
             .OrderBy(w => w.Site.Code).ThenBy(w => w.Name)
             .Select(w => new WidgetView(w.Id, w.SiteId, w.Site.Code, w.Name, w.IdentificationMode, w.Title, w.Greeting,
-                w.AccentColor, w.Position, w.DefaultLocale, w.TelegramBotId, w.CreatedAt, w.PublicKey, w.PublishedVersion,
+                w.AccentColor, w.Position, w.DefaultLocale, w.TelegramBotId, w.WhatsAppChannelId, w.CreatedAt, w.PublicKey, w.PublishedVersion,
                 w.PublishedAt, w.UpdatedAt, w.PublishedAt == null || w.UpdatedAt > w.PublishedAt, w.Options))
             .ToListAsync(ct);
 
@@ -195,16 +200,19 @@ public sealed partial class SiteSettingsService(
 
         if (input.TelegramBotId is { } botId && !await db.TelegramBots.AnyAsync(b => b.Id == botId, ct))
             throw new DomainException(ErrorCodes.BotNotFound, "Telegram bot not found");
+        if (input.WhatsAppChannelId is { } whatsAppId && !await db.WhatsAppChannels.AnyAsync(c => c.Id == whatsAppId, ct))
+            throw new DomainException(ErrorCodes.WhatsAppChannelNotFound, "WhatsApp channel not found");
 
         // Без настроек (старые клиенты API) — прежние настройки виджета, иначе присланные.
         // Картинку кнопки меняет только загрузка: здесь её можно лишь убрать.
         var options = input.Options ?? widget.Options;
         if (options.ButtonIcon is not null && options.ButtonIcon != widget.Options.ButtonIcon)
             options = options with { ButtonIcon = widget.Options.ButtonIcon };
-        options = options.Normalize(hasTelegramBot: input.TelegramBotId is not null);
+        options = options.Normalize(hasTelegramBot: input.TelegramBotId is not null,
+            hasWhatsApp: input.WhatsAppChannelId is not null);
 
         widget.Configure(ValidName(input.Name), input.IdentificationMode, title, greeting, color, input.Position, locale,
-            input.TelegramBotId, options, time.GetUtcNow());
+            input.TelegramBotId, input.WhatsAppChannelId, options, time.GetUtcNow());
     }
 
     /// <summary>Максимальный размер картинки кнопки: 512×512 проверяет админка, здесь — объём файла.</summary>

@@ -11,6 +11,7 @@ const en = {
   loadFailed: 'Could not load the chat. Please try again later.',
   notConfigured: 'This messenger is not connected yet.',
   openTelegram: 'Continue in Telegram',
+  openWhatsApp: 'Continue in WhatsApp',
   emoji: 'Emoji',
   collapse: 'Hide chat buttons',
   expand: 'Show chat buttons',

@@ -41,6 +41,10 @@ public sealed class RelayoDbContext(DbContextOptions<RelayoDbContext> options) :
 
     public DbSet<TelegramBot> TelegramBots => Set<TelegramBot>();
 
+    public DbSet<WhatsAppChannel> WhatsAppChannels => Set<WhatsAppChannel>();
+
+    public DbSet<WhatsAppLinkCode> WhatsAppLinkCodes => Set<WhatsAppLinkCode>();
+
     public DbSet<ChannelLinkToken> ChannelLinkTokens => Set<ChannelLinkToken>();
 
     public DbSet<LdapSettings> LdapSettings => Set<LdapSettings>();

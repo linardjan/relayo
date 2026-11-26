@@ -12,6 +12,7 @@ using System.Net;
 using Relayo.Internal.Api;
 using Relayo.Internal.Automation;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Configuration;
 using Relayo.Internal.Grpc;
 using Relayo.Internal.Hosting;
@@ -83,6 +84,21 @@ builder.Services.AddScoped<TelegramOutbox>();
 builder.Services.AddScoped<TelegramUpdateProcessor>();
 builder.Services.AddScoped<TelegramBotSettingsService>();
 builder.Services.AddHostedService<TelegramUpdatesService>();
+
+// WhatsApp: номера подключаются по QR-коду через шлюз src/Relayo.WhatsApp (необязателен).
+if (settings.WhatsAppGateway is { } whatsAppGateway)
+{
+    builder.Services.AddSingleton(whatsAppGateway);
+    builder.Services.AddHttpClient(WhatsAppGateway.HttpClientName, http =>
+    {
+        http.BaseAddress = new Uri(whatsAppGateway.Url.ToString().TrimEnd('/') + "/");
+        // Отправка файла: шлюз сначала загружает его на серверы WhatsApp.
+        http.Timeout = TimeSpan.FromSeconds(120);
+    });
+}
+builder.Services.AddSingleton<WhatsAppGateway>();
+builder.Services.AddScoped<WhatsAppOutbox>();
+builder.Services.AddScoped<WhatsAppMessageProcessor>();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<RelayoDbContext>("database", tags: [ServiceDefaultsExtensions.ReadyTag]);
 
@@ -114,6 +130,13 @@ builder.Host.UseWolverine(opts =>
     // Исходящие в Telegram: durable-очередь в БД, лимиты Telegram соблюдает обработчик.
     opts.PublishMessage<SendTelegramMessage>().ToLocalQueue(TelegramOutbox.QueueName);
     opts.LocalQueue(TelegramOutbox.QueueName).UseDurableInbox().MaximumParallelMessages(16);
+
+    // Исходящие в WhatsApp: по одному сообщению за раз — быстрая отправка похожа на спам, и WhatsApp блокирует номер.
+    // Шлюз недоступен или номер не подключён — повтор с растущей паузой, затем очередь ошибок.
+    opts.PublishMessage<SendWhatsAppMessage>().ToLocalQueue(WhatsAppOutbox.QueueName);
+    opts.LocalQueue(WhatsAppOutbox.QueueName).UseDurableInbox().MaximumParallelMessages(1);
+    opts.OnException<WhatsAppRetryException>().RetryWithCooldown(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30));
 
     // Правила: события и таймеры «не ответил N минут» (отложенные сообщения хранятся в БД).
     opts.PublishMessage<RuleEventOccurred>().ToLocalQueue(AutomationEvents.QueueName);
@@ -211,6 +234,8 @@ app.MapGroup("/api")
     .MapClientEndpoints()
     .MapSettingsEndpoints()
     .MapAutomationEndpoints()
+    .RequireLocalPort(settings.HttpPort);
+app.MapWhatsAppGatewayEndpoints()
     .RequireLocalPort(settings.HttpPort);
 app.MapHub<OperatorHub>(OperatorHub.Path)
     .RequireLocalPort(settings.HttpPort);

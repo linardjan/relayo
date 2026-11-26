@@ -1,5 +1,5 @@
 import { Alert, App as AntApp, Button, Empty, Image, Input, Popover, Tabs, Tag, Tooltip } from 'antd'
-import { CheckCircleOutlined, FileOutlined, PaperClipOutlined, RobotOutlined, SmileOutlined, SnippetsOutlined, WarningOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, EyeInvisibleOutlined, FileOutlined, PaperClipOutlined, RobotOutlined, SmileOutlined, SnippetsOutlined, WarningOutlined } from '@ant-design/icons'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../api/client'
@@ -47,14 +47,15 @@ export function Conversation({ details, onAliasRequired }: { details: TicketDeta
       {chat && !isClosed && (
         <Composer
           replyChannel={chat.replyChannel}
-          onSend={async (text, files) => {
+          onSend={async (mode, text, files) => {
             try {
-              await ticketsApi.reply(ticket.id, chat.id, text, files)
+              if (mode === 'comment') await ticketsApi.note(ticket.id, chat.id, text, files)
+              else await ticketsApi.reply(ticket.id, chat.id, text, files)
               return true
             } catch (e) {
               if (e instanceof ApiError && e.code === 'alias_required') onAliasRequired()
               // Причину (размер, тип файла, недоступно хранилище) сервер сообщает текстом.
-              else message.error(errorText(e, t('ticket.sendFailed')))
+              else message.error(errorText(e, t(mode === 'comment' ? 'ticket.noteFailed' : 'ticket.sendFailed')))
               return false
             }
           }}
@@ -77,8 +78,8 @@ function Messages({ chat, clientLabel, clientSeed, awaitingReply }: { chat?: Cha
 
   if (!chat) return <Empty style={{ flex: 1, paddingTop: 96 }} />
 
-  // Клиент ждёт ответа, если последнее сообщение — от него. Автоответ правила ответом человека не считается.
-  const last = [...chat.messages].reverse().find((m) => m.author !== 'System' && !m.automated)
+  // Клиент ждёт ответа, если последнее сообщение — от него. Автоответ правила и заметка ответом не считаются.
+  const last = [...chat.messages].reverse().find((m) => m.author !== 'System' && !m.automated && m.visibility !== 'Internal')
   const waitingSince = awaitingReply && last?.author === 'Client' ? last.createdAt : null
 
   return (
@@ -119,9 +120,10 @@ function MessageItem({ message: m, clientLabel, clientSeed }: { message: Operato
   }
 
   const fromClient = m.author === 'Client'
+  const internal = m.visibility === 'Internal'
   const name = fromClient ? clientLabel : (m.authorName ?? t('ticket.operator'))
   return (
-    <div className={`msg ${fromClient ? 'from-client' : 'from-operator'}${m.automated ? ' automated' : ''}`}>
+    <div className={`msg ${fromClient ? 'from-client' : 'from-operator'}${m.automated ? ' automated' : ''}${internal ? ' internal' : ''}`}>
       {m.automated ? (
         <span className="msg-robot">
           <RobotOutlined />
@@ -133,7 +135,13 @@ function MessageItem({ message: m, clientLabel, clientSeed }: { message: Operato
         <div className="msg-head">
           <span className="msg-name">{name}</span>
           <span className="msg-time">{formatTime(m.createdAt)}</span>
-          {m.channel !== 'Widget' && <ChannelIcon channel={m.channel} />}
+          {internal ? (
+            <span className="msg-note-label">
+              <EyeInvisibleOutlined /> {t('ticket.note')}
+            </span>
+          ) : (
+            m.channel !== 'Widget' && <ChannelIcon channel={m.channel} />
+          )}
         </div>
         <MessageAttachments items={m.attachments} />
         {m.text && <div className="msg-text">{m.text}</div>}
@@ -176,9 +184,19 @@ const emojis = ['🙂', '😊', '😉', '🙏', '👍', '👌', '👋', '🤝', 
 /** Не больше файлов в одном сообщении: столько же принимает сервер. */
 const MAX_FILES = 10
 
-function Composer({ onSend, replyChannel }: { onSend: (text: string, files: File[]) => Promise<boolean>; replyChannel: Channel }) {
+type ComposerMode = 'message' | 'comment'
+
+function Composer({
+  onSend,
+  replyChannel,
+}: {
+  onSend: (mode: ComposerMode, text: string, files: File[]) => Promise<boolean>
+  replyChannel: Channel
+}) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const [mode, setMode] = useState<ComposerMode>('message')
+  const isNote = mode === 'comment'
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
@@ -194,7 +212,7 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string, files: File
   const send = async () => {
     if (!canSend || sending) return
     setSending(true)
-    if (await onSend(text, files)) {
+    if (await onSend(mode, text, files)) {
       setText('')
       setFiles([])
     }
@@ -203,7 +221,7 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string, files: File
 
   return (
     <div
-      className={`composer${dragging ? ' dragging' : ''}`}
+      className={`composer${dragging ? ' dragging' : ''}${isNote ? ' note' : ''}`}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return
         e.preventDefault()
@@ -222,26 +240,34 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string, files: File
       <div className="composer-top">
         <Tabs
           size="small"
-          activeKey="message"
+          activeKey={mode}
+          onChange={(key) => setMode(key as ComposerMode)}
           tabBarStyle={{ marginBottom: 0 }}
           items={[
             { key: 'message', label: t('ticket.tabMessage') },
-            { key: 'comment', label: <Tooltip title={t('common.comingSoon')}>{t('ticket.tabComment')}</Tooltip>, disabled: true },
+            { key: 'comment', label: t('ticket.tabComment') },
           ]}
         />
-        {/* Куда уйдёт ответ и от чьего имени его увидит клиент. */}
-        <div className="composer-channel">
-          <ChannelIcon channel={replyChannel} />
-          {t('ticket.replyVia', { channel: t(`inbox.channel.${replyChannel}`) })}
-          {user?.alias && <span className="composer-alias">· {t('ticket.asAlias', { alias: user.alias })}</span>}
-        </div>
+        {/* Куда уйдёт ответ и от чьего имени его увидит клиент; заметку клиент не увидит вовсе. */}
+        {isNote ? (
+          <div className="composer-channel">
+            <EyeInvisibleOutlined />
+            {t('ticket.noteVisibility')}
+          </div>
+        ) : (
+          <div className="composer-channel">
+            <ChannelIcon channel={replyChannel} />
+            {t('ticket.replyVia', { channel: t(`inbox.channel.${replyChannel}`) })}
+            {user?.alias && <span className="composer-alias">· {t('ticket.asAlias', { alias: user.alias })}</span>}
+          </div>
+        )}
       </div>
       <Input.TextArea
         variant="borderless"
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoSize={{ minRows: 2, maxRows: 8 }}
-        placeholder={t('ticket.replyPlaceholder')}
+        placeholder={t(isNote ? 'ticket.notePlaceholder' : 'ticket.replyPlaceholder')}
         maxLength={10000}
         onPressEnter={(e) => {
           if (!e.shiftKey) {
@@ -303,7 +329,7 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string, files: File
           </Popover>
         </div>
         <Button type="primary" onClick={send} loading={sending} disabled={!canSend}>
-          {t('ticket.send')}
+          {t(isNote ? 'ticket.addNote' : 'ticket.send')}
         </Button>
       </div>
     </div>

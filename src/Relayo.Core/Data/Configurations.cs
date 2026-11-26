@@ -18,6 +18,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.Role).HasConversion<string>().HasMaxLength(32);
         b.Property(u => u.Source).HasConversion<string>().HasMaxLength(32);
         b.HasIndex(u => u.AdObjectGuid).IsUnique();
+        b.HasIndex(u => u.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
         b.Property(u => u.Email).HasMaxLength(User.EmailMaxLength);
         b.Property(u => u.Position).HasMaxLength(User.PositionMaxLength);
         b.Property(u => u.Phone).HasMaxLength(User.PhoneMaxLength);

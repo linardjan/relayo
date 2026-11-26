@@ -5,6 +5,7 @@ using Relayo.Core.Data;
 using Relayo.Core.Files;
 using Relayo.Core.Sites;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Storage;
 using Relayo.ServiceDefaults;
 using Relayo.ServiceDefaults.Redis;
@@ -27,7 +28,8 @@ public sealed record InternalSettings(
     StorageSettings? Storage,
     string? WidgetFilesBaseUrl,
     AttachmentLimits Attachments,
-    RedisSettings? Redis)
+    RedisSettings? Redis,
+    WhatsAppGatewaySettings? WhatsAppGateway = null)
 {
     public static InternalSettings Load(IConfiguration configuration, bool isDevelopment)
     {
@@ -89,7 +91,8 @@ public sealed record InternalSettings(
             config.Optional("WIDGET_FILES_BASE_URL"),
             LoadAttachments(config),
             // Без Redis — один экземпляр: realtime операторов, лимиты и опрос Telegram в пределах процесса.
-            RedisSettings.Load(config));
+            RedisSettings.Load(config),
+            LoadWhatsAppGateway(config));
 
         config.ThrowIfInvalid();
         return settings;
@@ -142,6 +145,20 @@ public sealed record InternalSettings(
         "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "audio/mpeg", "audio/ogg", "audio/mp4",
     ];
+
+    /// <summary>Шлюз WhatsApp необязателен: без него номера работают только в режиме «только ссылка».</summary>
+    private static WhatsAppGatewaySettings? LoadWhatsAppGateway(RelayoConfig config)
+    {
+        var url = config.Optional("WHATSAPP_GATEWAY_URL");
+        if (url is null)
+            return null;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            config.AddError($"WHATSAPP_GATEWAY_URL must be an absolute http(s) URL, got '{url}'");
+        var key = config.Required("WHATSAPP_GATEWAY_KEY");
+        if (key.Length is > 0 and < 32)
+            config.AddError("WHATSAPP_GATEWAY_KEY must be at least 32 characters (generate with: openssl rand -base64 32)");
+        return new WhatsAppGatewaySettings(uri ?? new Uri("http://localhost"), key);
+    }
 
     private static TelegramSettings LoadTelegram(RelayoConfig config)
     {

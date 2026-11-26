@@ -342,6 +342,120 @@ namespace Relayo.Core.Data.Migrations
                     b.ToTable("telegram_bots", (string)null);
                 });
 
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccountName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("account_name");
+
+                    b.Property<DateTimeOffset?>("ConnectedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("connected_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsConnected")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_connected");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)")
+                        .HasColumnName("phone_number")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("site_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_whatsapp_channels");
+
+                    b.HasIndex("PhoneNumber")
+                        .HasDatabaseName("ix_whatsapp_channels_phone_number");
+
+                    b.HasIndex("SiteId")
+                        .HasDatabaseName("ix_whatsapp_channels_site_id");
+
+                    b.ToTable("whatsapp_channels", (string)null);
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppLinkCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("VisitorIdentityId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("visitor_identity_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_whatsapp_link_codes");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_whatsapp_link_codes_channel_id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_whatsapp_link_codes_code_hash");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_whatsapp_link_codes_expires_at");
+
+                    b.HasIndex("VisitorIdentityId")
+                        .HasDatabaseName("ix_whatsapp_link_codes_visitor_identity_id");
+
+                    b.ToTable("whatsapp_link_codes", (string)null);
+                });
+
             modelBuilder.Entity("Relayo.Core.Clients.Client", b =>
                 {
                     b.Property<Guid>("Id")
@@ -377,8 +491,17 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
 
+                    b.Property<long?>("UsedeskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("usedesk_id");
+
                     b.HasKey("Id")
                         .HasName("pk_clients");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_clients_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("SiteId", "ExternalClientId")
                         .IsUnique()
@@ -484,15 +607,29 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_message_at");
 
+                    b.Property<string>("PageUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("page_url");
+
                     b.Property<Guid>("TicketId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("ticket_id");
+
+                    b.Property<long?>("UsedeskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("usedesk_id");
 
                     b.HasKey("Id")
                         .HasName("pk_chats");
 
                     b.HasIndex("TicketId")
                         .HasDatabaseName("ix_chats_ticket_id");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_chats_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("ClientId", "LastMessageAt")
                         .HasDatabaseName("ix_chats_client_id_last_message_at");
@@ -542,6 +679,16 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("text");
 
+                    b.Property<int?>("UsedeskId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_id");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("visibility");
+
                     b.Property<Guid?>("VisitorIdentityId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("visitor_identity_id");
@@ -558,6 +705,10 @@ namespace Relayo.Core.Data.Migrations
 
                     b.HasIndex("ChatId", "CreatedAt")
                         .HasDatabaseName("ix_messages_chat_id_created_at");
+
+                    b.HasIndex("UsedeskId", "CreatedAt")
+                        .HasDatabaseName("ix_messages_usedesk_id_created_at")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("VisitorIdentityId", "CreatedAt")
                         .HasDatabaseName("ix_messages_visitor_identity_id_created_at");
@@ -588,6 +739,10 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("group_id");
+
                     b.Property<string>("LastClientChannel")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -615,11 +770,27 @@ namespace Relayo.Core.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Number"));
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("SourceChannel")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("source_channel");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)")
                         .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("subject");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -627,6 +798,9 @@ namespace Relayo.Core.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_tickets");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_tickets_group_id");
 
                     b.HasIndex("Number")
                         .IsUnique()
@@ -995,6 +1169,10 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
 
+                    b.Property<Guid?>("WhatsAppChannelId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("whatsapp_channel_id");
+
                     b.HasKey("Id")
                         .HasName("pk_widgets");
 
@@ -1007,6 +1185,9 @@ namespace Relayo.Core.Data.Migrations
 
                     b.HasIndex("TelegramBotId")
                         .HasDatabaseName("ix_widgets_telegram_bot_id");
+
+                    b.HasIndex("WhatsAppChannelId")
+                        .HasDatabaseName("ix_widgets_whatsapp_channel_id");
 
                     b.ToTable("widgets", (string)null);
                 });
@@ -1181,6 +1362,10 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("nvarchar(16)")
                         .HasColumnName("status");
 
+                    b.Property<int?>("UsedeskId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_id");
+
                     b.HasKey("Id")
                         .HasName("pk_users");
 
@@ -1195,6 +1380,11 @@ namespace Relayo.Core.Data.Migrations
                     b.HasIndex("LoginNormalized")
                         .IsUnique()
                         .HasDatabaseName("ix_users_login_normalized");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_users_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.ToTable("users", (string)null);
                 });
@@ -1252,6 +1442,33 @@ namespace Relayo.Core.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_telegram_bots_sites_site_id");
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppChannel", b =>
+                {
+                    b.HasOne("Relayo.Core.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_channels_sites_site_id");
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppLinkCode", b =>
+                {
+                    b.HasOne("Relayo.Core.Channels.WhatsAppChannel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_link_codes_whatsapp_channels_channel_id");
+
+                    b.HasOne("Relayo.Core.Clients.ClientIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("VisitorIdentityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_link_codes_client_identities_visitor_identity_id");
                 });
 
             modelBuilder.Entity("Relayo.Core.Clients.Client", b =>
@@ -1312,6 +1529,12 @@ namespace Relayo.Core.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tickets_clients_client_id");
+
+                    b.HasOne("Relayo.Core.Users.AgentGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_tickets_agent_groups_group_id");
                 });
 
             modelBuilder.Entity("Relayo.Core.Files.Attachment", b =>
@@ -1350,6 +1573,12 @@ namespace Relayo.Core.Data.Migrations
                         .HasForeignKey("TelegramBotId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_widgets_telegram_bots_telegram_bot_id");
+
+                    b.HasOne("Relayo.Core.Channels.WhatsAppChannel", null)
+                        .WithMany()
+                        .HasForeignKey("WhatsAppChannelId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_widgets_whatsapp_channels_whatsapp_channel_id");
 
                     b.Navigation("Site");
                 });

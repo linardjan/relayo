@@ -19,6 +19,8 @@ namespace Relayo.Internal.Grpc;
 internal sealed class InternalGatewayService(
     WidgetConversationService widgets,
     TelegramConversationService telegram,
+    WhatsAppChannelService whatsApp,
+    WhatsAppConversationService whatsAppConversations,
     TelegramUpdateProcessor telegramUpdates,
     ConversationEvents events,
     WidgetPublisher publisher,
@@ -46,7 +48,8 @@ internal sealed class InternalGatewayService(
         {
             var widget = await widgets.GetWidgetAsync(ParseId(request.WidgetId), ct);
             // Те же настройки, что публикуются в файл виджета: виджет без S3 получает их по API.
-            var snapshot = publisher.Snapshot(widget, await telegram.GetWidgetBotUsernameAsync(widget, ct));
+            var (phone, withCode) = await whatsApp.GetWidgetLinkAsync(widget, ct);
+            var snapshot = publisher.Snapshot(widget, await telegram.GetWidgetBotUsernameAsync(widget, ct), phone, withCode);
             var config = new WidgetConfig
             {
                 WidgetId = snapshot.WidgetId,
@@ -63,6 +66,8 @@ internal sealed class InternalGatewayService(
                 MaxAttachmentBytes = snapshot.MaxAttachmentBytes,
                 OptionsJson = JsonSerializer.Serialize(snapshot.Options, WidgetPublisher.Json),
                 ButtonIconUrl = snapshot.ButtonIconUrl ?? string.Empty,
+                Whatsapp = snapshot.WhatsApp ?? string.Empty,
+                WhatsappCode = snapshot.WhatsAppCode,
             };
             config.AllowedOrigins.AddRange(widget.Site.AllowedOrigins);
             return config;
@@ -101,7 +106,8 @@ internal sealed class InternalGatewayService(
                 .Select(f => new FileUpload(f.FileName, f.ContentType, f.Content.ToByteArray()))
                 .ToList();
             var posted = await widgets.SendAsync(widget, request.VisitorToken, request.Text,
-                string.IsNullOrEmpty(request.ClientMessageId) ? null : request.ClientMessageId, files, ct);
+                string.IsNullOrEmpty(request.ClientMessageId) ? null : request.ClientMessageId, files, ct,
+                string.IsNullOrEmpty(request.PageUrl) ? null : request.PageUrl);
 
             // Другие вкладки и устройства клиента получают сообщение сразу, операторы — тоже.
             if (!posted.Duplicate)
@@ -124,6 +130,14 @@ internal sealed class InternalGatewayService(
         {
             var widget = await widgets.GetWidgetAsync(ParseId(request.WidgetId), ct);
             var link = await telegram.CreateLinkAsync(widget, request.VisitorToken, ct);
+            return new MessengerLink { Url = link.Url, ExpiresAtUnixMs = link.ExpiresAt.ToUnixTimeMilliseconds() };
+        }, context);
+
+    public override Task<MessengerLink> CreateWhatsAppLink(VisitorRequest request, ServerCallContext context) =>
+        Run(async ct =>
+        {
+            var widget = await widgets.GetWidgetAsync(ParseId(request.WidgetId), ct);
+            var link = await whatsAppConversations.CreateLinkAsync(widget, request.VisitorToken, ct);
             return new MessengerLink { Url = link.Url, ExpiresAtUnixMs = link.ExpiresAt.ToUnixTimeMilliseconds() };
         }, context);
 
@@ -206,7 +220,8 @@ internal sealed class InternalGatewayService(
                 ErrorCodes.InvalidToken => StatusCode.Unauthenticated,
                 ErrorCodes.WrongMode or ErrorCodes.SiteMismatch => StatusCode.PermissionDenied,
                 ErrorCodes.WebhookForbidden => StatusCode.Unauthenticated,
-                ErrorCodes.TelegramNotConnected or ErrorCodes.AttachmentsDisabled => StatusCode.FailedPrecondition,
+                ErrorCodes.TelegramNotConnected or ErrorCodes.WhatsAppNotConnected
+                    or ErrorCodes.AttachmentsDisabled => StatusCode.FailedPrecondition,
                 ErrorCodes.StorageNotConfigured or ErrorCodes.StorageUnavailable => StatusCode.Unavailable,
                 _ => StatusCode.InvalidArgument,
             };

@@ -16,6 +16,21 @@ public class WidgetOptionsTests
     }
 
     [Fact]
+    public void Whatsapp_item_follows_the_channel()
+    {
+        var withChannel = WidgetOptions.Default.Normalize(hasTelegramBot: false, hasWhatsApp: true);
+        Assert.Equal(new LauncherItem(LauncherItemType.WhatsApp, "WhatsApp"), withChannel.Items[^1]);
+
+        var noChannel = (WidgetOptions.Default with { Items = [new(LauncherItemType.WhatsApp, "WA")] }).Normalize(false, false);
+        Assert.Equal([LauncherItemType.Chat], noChannel.Items.Select(i => i.Type));
+
+        Assert.Throws<DomainException>(() => (WidgetOptions.Default with
+        {
+            Items = [new(LauncherItemType.WhatsApp, "a"), new(LauncherItemType.WhatsApp, "b")],
+        }).Normalize(false, true));
+    }
+
+    [Fact]
     public void Items_keep_order_and_get_default_labels()
     {
         var options = (WidgetOptions.Default with

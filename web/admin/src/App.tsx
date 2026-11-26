@@ -12,6 +12,7 @@ import { AgentPage } from './pages/agents/AgentPage'
 import { AgentsPage } from './pages/agents/AgentsPage'
 import { ChannelsPage } from './pages/channels/ChannelsPage'
 import { TelegramBotPage } from './pages/channels/TelegramBotPage'
+import { WhatsAppChannelPage } from './pages/channels/WhatsAppChannelPage'
 import { WidgetPage } from './pages/channels/WidgetPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 import { RulePage } from './pages/automation/RulePage'
@@ -67,6 +68,8 @@ export default function App() {
         <Route path="channels/widgets/:widgetId" element={<RequireAdmin><WidgetPage /></RequireAdmin>} />
         <Route path="channels/telegram/new" element={<RequireAdmin><TelegramBotPage /></RequireAdmin>} />
         <Route path="channels/telegram/:botId" element={<RequireAdmin><TelegramBotPage /></RequireAdmin>} />
+        <Route path="channels/whatsapp/new" element={<RequireAdmin><WhatsAppChannelPage /></RequireAdmin>} />
+        <Route path="channels/whatsapp/:channelId" element={<RequireAdmin><WhatsAppChannelPage /></RequireAdmin>} />
         <Route path="settings" element={<Navigate to="/settings/sites" replace />} />
         <Route path="settings/sites" element={<RequireAdmin><SitesPage /></RequireAdmin>} />
         <Route path="settings/sites/new" element={<RequireAdmin><SitePage /></RequireAdmin>} />

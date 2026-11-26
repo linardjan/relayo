@@ -6,6 +6,7 @@ using Relayo.Core.Conversations;
 using Relayo.Core.Files;
 using Relayo.Internal.Automation;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Messaging;
 using Relayo.Internal.Realtime;
 
@@ -14,6 +15,8 @@ namespace Relayo.Internal.Api;
 public sealed record ReplyRequest(Guid ChatId, string Text);
 
 public sealed record SetAliasRequest(string Alias);
+
+public sealed record SetGroupRequest(Guid? GroupId);
 
 internal static class TicketEndpoints
 {
@@ -30,13 +33,15 @@ internal static class TicketEndpoints
         // Ответ: JSON {chatId, text} или multipart/form-data (chatId, text, files) — с вложениями.
         tickets.MapPost("/{id:guid}/messages", async (Guid id, HttpRequest http, ClaimsPrincipal user,
             TicketService service, AttachmentLimits limits, WidgetEvents widgetEvents, TelegramOutbox telegram,
-            OperatorNotifier operators, AutomationEvents automation, CancellationToken ct) =>
+            WhatsAppOutbox whatsApp, OperatorNotifier operators, AutomationEvents automation, CancellationToken ct) =>
         {
             var request = await ReadReplyAsync(http, limits, ct);
             var before = await service.GetStatusAsync(id, ct);
             var reply = await service.ReplyAsync(id, request.ChatId, UserId(user), request.Text, request.Files, ct);
             if (reply.Telegram is { OperatorAlias: { } alias } delivery)
                 await telegram.SendOperatorReplyAsync(delivery.BotId, delivery.ChatId, alias, delivery.Text, delivery.Files);
+            if (reply.WhatsApp is { OperatorAlias: { } waAlias } waDelivery)
+                await whatsApp.SendOperatorReplyAsync(waDelivery.ChannelId, waDelivery.ChatJid, waAlias, waDelivery.Text, waDelivery.Files);
             // Ответ видит и виджет: переписка в Telegram продолжает тот же чат.
             await widgetEvents.PublishAsync(reply.WidgetMessage, reply.Recipients);
             await operators.MessageCreatedAsync(id, reply.Message);
@@ -45,6 +50,27 @@ internal static class TicketEndpoints
             return reply.Message;
         }).WithMetadata(new RequestSizeLimitAttribute(
             ((IEndpointRouteBuilder)api).ServiceProvider.GetRequiredService<AttachmentLimits>().MaxBytes + FormFiles.FormOverheadBytes));
+
+        // Внутренняя заметка: те же поля, что у ответа. Видят только сотрудники, клиенту ничего не уходит.
+        tickets.MapPost("/{id:guid}/notes", async (Guid id, HttpRequest http, ClaimsPrincipal user,
+            TicketService service, AttachmentLimits limits, OperatorNotifier operators, CancellationToken ct) =>
+        {
+            var request = await ReadReplyAsync(http, limits, ct);
+            var note = await service.AddNoteAsync(id, request.ChatId, UserId(user), request.Text, request.Files, ct);
+            await operators.MessageCreatedAsync(id, note);
+            return note;
+        }).WithMetadata(new RequestSizeLimitAttribute(
+            ((IEndpointRouteBuilder)api).ServiceProvider.GetRequiredService<AttachmentLimits>().MaxBytes + FormFiles.FormOverheadBytes));
+
+        tickets.MapGet("/groups", (TicketService service, CancellationToken ct) => service.ListGroupsAsync(ct));
+
+        tickets.MapPut("/{id:guid}/group", async (Guid id, SetGroupRequest request, TicketService service,
+            OperatorNotifier operators, CancellationToken ct) =>
+        {
+            var summary = await service.SetGroupAsync(id, request.GroupId, ct);
+            await operators.TicketChangedAsync(summary);
+            return summary;
+        });
 
         tickets.MapPost("/{id:guid}/assign", async (Guid id, ClaimsPrincipal user, TicketService service,
             OperatorNotifier operators, AutomationEvents automation, CancellationToken ct) =>

@@ -115,7 +115,7 @@ public sealed class WidgetConversationService(
     }
 
     public async Task<PostedVisitorMessage> SendAsync(Widget widget, string visitorToken, string text,
-        string? clientMessageId, IReadOnlyList<FileUpload> uploads, CancellationToken ct)
+        string? clientMessageId, IReadOnlyList<FileUpload> uploads, CancellationToken ct, string? pageUrl = null)
     {
         text = text.Trim();
         if (text.Length > Message.TextMaxLength || (text.Length == 0 && uploads.Count == 0))
@@ -136,7 +136,7 @@ public sealed class WidgetConversationService(
 
         var now = time.GetUtcNow();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var posted = await PostAsync(visitor, Channel.Widget, text, clientMessageId, now, ct, files);
+        var posted = await PostAsync(visitor, Channel.Widget, text, clientMessageId, now, ct, files, pageUrl);
         await tx.CommitAsync(ct);
         return posted;
     }
@@ -152,7 +152,8 @@ public sealed class WidgetConversationService(
     /// Вызывается внутри открытой транзакции; у идентичности должен быть загружен Client.
     /// </summary>
     internal async Task<PostedVisitorMessage> PostAsync(ClientIdentity identity, Channel channel, string text,
-        string? clientMessageId, DateTimeOffset now, CancellationToken ct, IReadOnlyList<StoredFile>? files = null)
+        string? clientMessageId, DateTimeOffset now, CancellationToken ct, IReadOnlyList<StoredFile>? files = null,
+        string? pageUrl = null)
     {
         files ??= [];
         if (identity.Client is null)
@@ -197,6 +198,7 @@ public sealed class WidgetConversationService(
             chat = await ChooseChatAsync(ticket, identity, now, ct);
         }
 
+        chat.SetPageUrlIfEmpty(pageUrl);
         var message = Message.FromClient(chat, identity.Id, channel, text, clientMessageId, now);
         db.Messages.Add(message);
         var views = attachments.Attach(message, files);
@@ -241,6 +243,7 @@ public sealed class WidgetConversationService(
         var rows = await (
                 from m in db.Messages.AsNoTracking()
                 where chatIds.Contains(m.ChatId) && m.CreatedAt >= since
+                      && m.Visibility == MessageVisibility.Public
                 join u in db.Users on m.OperatorId equals u.Id into operators
                 from u in operators.DefaultIfEmpty()
                 orderby m.CreatedAt descending

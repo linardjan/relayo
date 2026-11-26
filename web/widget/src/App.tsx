@@ -19,6 +19,11 @@ const TelegramIcon = () => (
     <path d="M21.9 4.3c.3-1.2-.9-2.1-2-1.7L2.8 9.2c-1.2.5-1.2 2.2.1 2.6l4.3 1.4 1.7 5.3c.3 1 1.6 1.3 2.3.5l2.4-2.4 4.6 3.4c.9.7 2.2.2 2.5-.9l2.2-13.8zM9.6 14.6l-.5 3.4-1.3-4.3 9.8-6.3-8 7.2z" />
   </svg>
 )
+const WhatsAppIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
+    <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.3c0-.1-.2-.2-.5-.3z" />
+  </svg>
+)
 const CrossIcon = () => (
   <svg width="28" height="28" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
     <path d="M5 5l14 14M19 5L5 19" />
@@ -106,7 +111,7 @@ export function App({ controller }: { controller: Controller }) {
   if (!config || options.visibility === 'Never') return null
   if (!delayPassed && !state.open) return null
   const t = textsFor(config.defaultLocale)
-  const items = launcherItems(options, !!config.telegramBot)
+  const items = launcherItems(options, !!config.telegramBot, !!config.whatsApp)
   const chatItem = items.find((i) => i.type === 'Chat')!
   const hasExtra = items.length > 1
   const tooltip = options.tooltipMode !== 'Never' && options.tooltipText && !state.open && (
@@ -155,6 +160,10 @@ export function App({ controller }: { controller: Controller }) {
                     <button key={i} class="round telegram" aria-label={item.label || t.openTelegram} title={item.label || t.openTelegram} onClick={() => controller.open('tg')}>
                       <TelegramIcon />
                     </button>
+                  ) : item.type === 'WhatsApp' ? (
+                    <button key={i} class="round whatsapp" aria-label={item.label || t.openWhatsApp} title={item.label || t.openWhatsApp} onClick={() => controller.open('whatsapp')}>
+                      <WhatsAppIcon />
+                    </button>
                   ) : (
                     <a key={i} class="round link" href={item.url ?? '#'} target="_blank" rel="noopener noreferrer" aria-label={item.label} title={item.label}>
                       <LinkIcon />
@@ -178,11 +187,14 @@ export function App({ controller }: { controller: Controller }) {
   )
 }
 
-/** Пункты в порядке из настроек. Telegram — только если бот подключён. */
-function launcherItems(options: WidgetOptions, hasTelegram: boolean): LauncherItem[] {
-  const items = (options.items ?? []).filter((i) => (i.type === 'Telegram' ? hasTelegram : i.type !== 'Link' || !!i.url))
+/** Пункты в порядке из настроек. Telegram — только если бот подключён, WhatsApp — если подключён номер. */
+function launcherItems(options: WidgetOptions, hasTelegram: boolean, hasWhatsApp: boolean): LauncherItem[] {
+  const items = (options.items ?? []).filter((i) =>
+    i.type === 'Telegram' ? hasTelegram : i.type === 'WhatsApp' ? hasWhatsApp : i.type !== 'Link' || !!i.url,
+  )
   if (!items.some((i) => i.type === 'Chat')) items.unshift({ type: 'Chat', label: '' })
   if (hasTelegram && !items.some((i) => i.type === 'Telegram')) items.push({ type: 'Telegram', label: '' })
+  if (hasWhatsApp && !items.some((i) => i.type === 'WhatsApp')) items.push({ type: 'WhatsApp', label: '' })
   return items
 }
 

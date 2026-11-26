@@ -34,6 +34,8 @@ type EventName = 'ready' | 'open' | 'close' | 'message' | 'unreadChanged'
 /** Куда открыть: без аргумента — окно чата, иначе мессенджер. */
 export type OpenTarget = 'chat' | 'tg' | 'telegram' | 'whatsapp' | 'wa'
 
+type MessengerKind = 'tg' | 'wa'
+
 /**
  * Состояние и поведение виджета. UI подписывается на изменения через subscribe().
  *
@@ -55,8 +57,9 @@ export class Controller {
   private appliedIdentity: string | null = null
   private product: string | null = null
   private locale: string | null = null
-  private telegramLink: { url: string; expiresAt: number } | null = null
-  private telegramLinkPromise: Promise<string> | null = null
+  /** Заранее полученные одноразовые ссылки в мессенджеры. */
+  private links: Record<MessengerKind, { url: string; expiresAt: number } | null> = { tg: null, wa: null }
+  private linkPromises: Record<MessengerKind, Promise<string> | null> = { tg: null, wa: null }
   private linkTimer: ReturnType<typeof setInterval> | null = null
   private historyTimer: ReturnType<typeof setInterval> | null = null
   /** Файлы неотправленных сообщений: нужны для повторной отправки. */
@@ -94,15 +97,13 @@ export class Controller {
 
   /**
    * Relayo.open() — окно чата; Relayo.open('tg') — Telegram; Relayo.open('whatsapp') — WhatsApp.
-   * Мессенджер открывается с одноразовой ссылкой, и переписка продолжится в том же чате.
+   * Telegram открывается с одноразовой ссылкой, и переписка продолжится в том же чате;
+   * WhatsApp — чат с номером канала (wa.me/<номер>).
    */
   open(target?: OpenTarget): void {
     const where = typeof target === 'string' ? target.toLowerCase() : 'chat'
     if (where === 'tg' || where === 'telegram') return this.openTelegram()
-    if (where === 'whatsapp' || where === 'wa') {
-      console.warn('[Relayo] WhatsApp is not connected to this widget yet.')
-      return
-    }
+    if (where === 'whatsapp' || where === 'wa') return this.openWhatsApp()
     if (where !== 'chat') {
       console.warn(`[Relayo] Unknown open target "${String(target)}". Use Relayo.open(), Relayo.open('tg') or Relayo.open('whatsapp').`)
       return
@@ -164,8 +165,8 @@ export class Controller {
     this.identity = null
     this.appliedIdentity = null
     this.sessionPromise = null
-    this.telegramLink = null
-    this.telegramLinkPromise = null
+    this.links = { tg: null, wa: null }
+    this.linkPromises = { tg: null, wa: null }
     this.pendingFiles.clear()
     void this.hub?.stop()
     this.hub = null
@@ -180,8 +181,6 @@ export class Controller {
 
   /**
    * Открывает бота в Telegram с одноразовой ссылкой: переписка продолжится в том же чате.
-   * Ссылка запрашивается заранее, потому что браузеры (особенно Safari на iOS) блокируют переход,
-   * если перед ним по клику шёл сетевой запрос.
    */
   private openTelegram(): void {
     const bot = this.state.config?.telegramBot
@@ -189,13 +188,36 @@ export class Controller {
       console.warn('[Relayo] Telegram is not connected to this widget.')
       return
     }
+    this.openMessenger('tg', `https://t.me/${encodeURIComponent(bot)}`)
+  }
 
-    const ready = this.telegramLink
+  /**
+   * Открывает в WhatsApp чат с номером канала. Если номер подключён к Relayo по QR, в поле ввода подставляется
+   * код перехода: по нему первое сообщение попадёт в эту же переписку.
+   */
+  private openWhatsApp(): void {
+    const config = this.state.config
+    if (!config?.whatsApp) {
+      console.warn('[Relayo] WhatsApp is not connected to this widget.')
+      return
+    }
+    const plain = `https://wa.me/${encodeURIComponent(config.whatsApp)}`
+    if (!config.whatsAppCode) return openInNewTab(plain)
+    this.openMessenger('wa', plain)
+  }
+
+  /**
+   * Переход в мессенджер по одноразовой ссылке. Ссылка запрашивается заранее, потому что браузеры
+   * (особенно Safari на iOS) блокируют переход, если перед ним по клику шёл сетевой запрос.
+   * Без ссылки человек всё равно попадёт в мессенджер (fallback), только переписка начнётся заново.
+   */
+  private openMessenger(kind: MessengerKind, fallback: string): void {
+    const ready = this.links[kind]
     if (ready && ready.expiresAt - Date.now() > 30_000) {
       openInNewTab(ready.url)
       // Ссылка одноразовая: сразу готовим следующую.
-      this.telegramLink = null
-      void this.refreshTelegramLink()
+      this.links[kind] = null
+      void this.refreshLink(kind).catch(() => undefined)
       return
     }
 
@@ -205,16 +227,15 @@ export class Controller {
     if (tab) tab.opener = null
     const go = (url: string) => (tab ? (tab.location.href = url) : (window.location.href = url))
     this.ensureSession()
-      .then(() => this.refreshTelegramLink())
+      .then(() => this.refreshLink(kind))
       .then((url) => {
-        this.telegramLink = null
+        this.links[kind] = null
         go(url)
-        void this.refreshTelegramLink()
+        void this.refreshLink(kind).catch(() => undefined)
       })
       .catch((error) => {
-        // Без ссылки человек всё равно попадёт к боту, только переписка начнётся заново.
-        console.warn('[Relayo] Could not create a Telegram link, opening the bot without it', error)
-        go(`https://t.me/${encodeURIComponent(bot)}`)
+        console.warn(`[Relayo] Could not create a ${kind === 'tg' ? 'Telegram' : 'WhatsApp'} link, opening without it`, error)
+        go(fallback)
       })
   }
 
@@ -276,35 +297,43 @@ export class Controller {
     await this.applyIdentity(true)
     await this.connectHub()
     this.set({ connecting: false })
-    this.startTelegramLinkRefresh()
+    this.startLinkRefresh()
     this.historyTimer ??= setInterval(() => {
       if (this.state.open && document.visibilityState === 'visible') void this.refreshHistory()
     }, HISTORY_REFRESH_MS)
   }
 
-  /** Держит наготове свежую ссылку в Telegram, пока вкладка видна. */
-  private startTelegramLinkRefresh(): void {
-    if (!this.state.config?.telegramBot || this.linkTimer) return
-    void this.refreshTelegramLink().catch(() => undefined)
+  /** Мессенджеры, в которые виджет переходит по одноразовой ссылке. */
+  private linkKinds(): MessengerKind[] {
+    const config = this.state.config
+    return [...(config?.telegramBot ? (['tg'] as const) : []), ...(config?.whatsApp && config.whatsAppCode ? (['wa'] as const) : [])]
+  }
+
+  /** Держит наготове свежие ссылки в мессенджеры, пока вкладка видна. */
+  private startLinkRefresh(): void {
+    const kinds = this.linkKinds()
+    if (kinds.length === 0 || this.linkTimer) return
+    for (const kind of kinds) void this.refreshLink(kind).catch(() => undefined)
     this.linkTimer = setInterval(() => {
       if (document.visibilityState !== 'visible' || !this.visitorToken) return
-      const link = this.telegramLink
-      if (!link || link.expiresAt - Date.now() < LINK_REFRESH_BEFORE_MS) void this.refreshTelegramLink().catch(() => undefined)
+      for (const kind of kinds) {
+        const link = this.links[kind]
+        if (!link || link.expiresAt - Date.now() < LINK_REFRESH_BEFORE_MS) void this.refreshLink(kind).catch(() => undefined)
+      }
     }, LINK_CHECK_INTERVAL_MS)
   }
 
-  private refreshTelegramLink(): Promise<string> {
+  private refreshLink(kind: MessengerKind): Promise<string> {
     if (!this.visitorToken) return Promise.reject(new Error('No visitor session'))
-    this.telegramLinkPromise ??= this.api
-      .telegramLink(this.visitorToken)
+    this.linkPromises[kind] ??= (kind === 'tg' ? this.api.telegramLink(this.visitorToken) : this.api.whatsAppLink(this.visitorToken))
       .then((link) => {
-        this.telegramLink = { url: link.url, expiresAt: Date.parse(link.expiresAt) }
+        this.links[kind] = { url: link.url, expiresAt: Date.parse(link.expiresAt) }
         return link.url
       })
       .finally(() => {
-        this.telegramLinkPromise = null
+        this.linkPromises[kind] = null
       })
-    return this.telegramLinkPromise
+    return this.linkPromises[kind]
   }
 
   /** Применяет identify()/setClientId(), если есть сессия; иначе это сделает startSession(). */

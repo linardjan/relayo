@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Relayo.Core;
 using Relayo.Core.Auth;
+using Relayo.Core.Channels;
 using Relayo.Core.Directory;
 using Relayo.Core.Sites;
 using Relayo.Core.Users;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Configuration;
 
 namespace Relayo.Internal.Api;
@@ -21,7 +23,8 @@ public sealed record CreateWidgetRequest(
     WidgetPosition Position,
     string DefaultLocale,
     Guid? TelegramBotId,
-    WidgetOptions? Options = null);
+    WidgetOptions? Options = null,
+    Guid? WhatsAppChannelId = null);
 
 public sealed record SetPasswordRequest(string Password);
 
@@ -61,7 +64,7 @@ internal static class SettingsEndpoints
         settings.MapPost("/widgets", async (CreateWidgetRequest r, SiteSettingsService service, InternalSettings config,
             WidgetPublisher publisher, CancellationToken ct) => WithEmbed(await service.CreateWidgetAsync(r.SiteId,
             new WidgetInput(r.Name, r.IdentificationMode, r.Title, r.Greeting, r.AccentColor, r.Position, r.DefaultLocale,
-                r.TelegramBotId, r.Options), ct), config, publisher));
+                r.TelegramBotId, r.Options, r.WhatsAppChannelId), ct), config, publisher));
         settings.MapPut("/widgets/{id:guid}", async (Guid id, WidgetInput input, SiteSettingsService service,
             InternalSettings config, WidgetPublisher publisher, CancellationToken ct) =>
             WithEmbed(await service.UpdateWidgetAsync(id, input, ct), config, publisher));
@@ -122,6 +125,35 @@ internal static class SettingsEndpoints
             await service.DeleteAsync(id, ct);
             return Results.NoContent();
         });
+
+        // Каналы WhatsApp
+        settings.MapGet("/whatsapp-channels", (WhatsAppChannelService service, CancellationToken ct) =>
+            service.ListAsync(ct));
+        settings.MapPost("/whatsapp-channels", (WhatsAppChannelInput input, WhatsAppChannelService service,
+            CancellationToken ct) => service.CreateAsync(input, ct));
+        settings.MapPut("/whatsapp-channels/{id:guid}", (Guid id, WhatsAppChannelInput input, WhatsAppChannelService service,
+            CancellationToken ct) => service.UpdateAsync(id, input, ct));
+        settings.MapDelete("/whatsapp-channels/{id:guid}", async (Guid id, WhatsAppChannelService service,
+            WhatsAppGateway gateway, ILogger<WhatsAppGateway> logger, CancellationToken ct) =>
+        {
+            var channel = await service.FindAsync(id, ct);
+            // Номер выходит из WhatsApp. Если шлюз недоступен — канал всё равно удаляется: шлюз сам выйдет,
+            // когда при следующем сообщении узнает, что канала нет.
+            if (channel.Mode == WhatsAppMode.Gateway && gateway.IsConfigured)
+            {
+                try
+                {
+                    await gateway.LogoutAsync(id, ct);
+                }
+                catch (DomainException ex) when (ex.Code == ErrorCodes.WhatsAppGatewayUnavailable)
+                {
+                    logger.LogWarning("Could not log out WhatsApp channel {ChannelId}: {Error}", id, ex.Message);
+                }
+            }
+            await service.DeleteAsync(id, ct);
+            return Results.NoContent();
+        });
+        settings.MapWhatsAppConnectionEndpoints();
 
         // Пользователи
         settings.MapGet("/users", (UserAdminService service, CancellationToken ct) => service.ListAsync(ct));

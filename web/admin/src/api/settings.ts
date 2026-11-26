@@ -20,7 +20,7 @@ export interface Site {
 export type IdentificationMode = 'SignedToken' | 'Direct'
 export type WidgetPosition = 'Right' | 'Left'
 
-export type LauncherItemType = 'Chat' | 'Telegram' | 'Link'
+export type LauncherItemType = 'Chat' | 'Telegram' | 'Link' | 'WhatsApp'
 
 export interface LauncherItem {
   type: LauncherItemType
@@ -58,6 +58,8 @@ export interface WidgetInput {
   position: WidgetPosition
   defaultLocale: string
   telegramBotId: string | null
+  /** Канал WhatsApp, на номер которого ведёт кнопка WhatsApp. */
+  whatsAppChannelId: string | null
   options: WidgetOptions
 }
 
@@ -107,6 +109,45 @@ export interface TelegramBotInput {
   isEnabled: boolean
   /** Пусто при изменении — оставить прежний токен. */
   token?: string
+}
+
+/** LinkOnly — виджет только открывает wa.me; Gateway — номер подключён по QR, переписка идёт в Relayo. */
+export type WhatsAppMode = 'LinkOnly' | 'Gateway'
+
+export interface WhatsAppChannel {
+  id: string
+  name: string
+  mode: WhatsAppMode
+  /** Только цифры с кодом страны: 79001234567. В режиме QR — из WhatsApp после подключения. */
+  phoneNumber: string | null
+  siteId: string
+  siteCode: string
+  isEnabled: boolean
+  isConnected: boolean
+  accountName: string | null
+  connectedAt: string | null
+  createdAt: string
+  widgetCount: number
+}
+
+export interface WhatsAppChannelInput {
+  name: string
+  mode: WhatsAppMode
+  phoneNumber?: string | null
+  siteId: string
+  isEnabled: boolean
+}
+
+/** Состояние подключения в шлюзе. unavailable — шлюз не отвечает; configured=false — шлюз не настроен в .env. */
+export interface WhatsAppConnection {
+  configured: boolean
+  status: 'starting' | 'qr' | 'connected' | 'disconnected' | 'unavailable'
+  qr: string | null
+  qrExpiresAt: string | null
+  phone: string | null
+  name: string | null
+  /** logged_out, qr_timeout, replaced */
+  reason: string | null
 }
 
 export interface StaffUser {
@@ -211,7 +252,20 @@ export const settingsApi = {
     api<TelegramBot>(`/api/settings/telegram-bots/${id}`, json('PUT', input)),
   deleteTelegramBot: (id: string) => api<void>(`/api/settings/telegram-bots/${id}`, json('DELETE')),
 
-  channelCounts: () => api<{ widgets: Record<string, number>; telegramBots: Record<string, number> }>('/api/settings/channels/counts'),
+  whatsAppChannels: () => api<WhatsAppChannel[]>('/api/settings/whatsapp-channels'),
+  createWhatsAppChannel: (input: WhatsAppChannelInput) =>
+    api<WhatsAppChannel>('/api/settings/whatsapp-channels', json('POST', input)),
+  updateWhatsAppChannel: (id: string, input: WhatsAppChannelInput) =>
+    api<WhatsAppChannel>(`/api/settings/whatsapp-channels/${id}`, json('PUT', input)),
+  deleteWhatsAppChannel: (id: string) => api<void>(`/api/settings/whatsapp-channels/${id}`, json('DELETE')),
+  whatsAppConnection: (id: string) => api<WhatsAppConnection>(`/api/settings/whatsapp-channels/${id}/connection`),
+  connectWhatsApp: (id: string) => api<WhatsAppConnection>(`/api/settings/whatsapp-channels/${id}/connect`, json('POST')),
+  disconnectWhatsApp: (id: string) =>
+    api<WhatsAppChannel>(`/api/settings/whatsapp-channels/${id}/disconnect`, json('POST')),
+  channelCounts: () =>
+    api<{ widgets: Record<string, number>; telegramBots: Record<string, number>; whatsAppChannels: Record<string, number> }>(
+      '/api/settings/channels/counts',
+    ),
 
   ldap: () => api<LdapSettings>('/api/settings/ldap'),
   saveLdap: (input: LdapSettingsInput) => api<LdapSettings>('/api/settings/ldap', json('PUT', input)),

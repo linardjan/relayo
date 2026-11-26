@@ -11,6 +11,7 @@
 | `src/Relayo.Public` | Публичный сервис: API виджета, вебхуки мессенджеров (5200). Доступен из интернета, **доступа к БД не имеет** |
 | `src/Relayo.Core` | Доменная модель и данные (EF Core, MS SQL Server). Используется только внутренним сервисом |
 | `src/Relayo.Contracts` | Контракты между сервисами: gRPC (`Protos/`) и сообщения шины |
+| `src/Relayo.WhatsApp` | Шлюз WhatsApp (Node.js, Baileys): подключение номеров по QR-коду, приём и отправка сообщений (5400). Только внутренняя сеть |
 | `src/Relayo.ServiceDefaults` | Общая обвязка: `.env`, проверка настроек, логи, трассировка, health checks |
 | `web/admin` | Админка: React + TypeScript + AntD (порт 5173) |
 | `web/widget` | Виджет чата: Preact в Shadow DOM. Собирается в `src/Relayo.Public/wwwroot/widget/core.js` |
@@ -56,6 +57,9 @@ dotnet run --project src/Relayo.Public
 
 # 5. Админка
 cd web/admin && npm install && npm run dev
+
+# 6. Шлюз WhatsApp (если нужна переписка в WhatsApp; ключ — WHATSAPP_GATEWAY_KEY в .env)
+cd src/Relayo.WhatsApp && npm install && npm run dev
 ```
 
 Админка: http://localhost:5173, вход `admin` и пароль из `BOOTSTRAP_ADMIN_PASSWORD`.
@@ -111,6 +115,22 @@ cd web/admin && npm install && npm run dev
 
 В бою используется `TELEGRAM_UPDATES_MODE=webhook`: тогда `PUBLIC_BASE_URL` должен быть публичным HTTPS-адресом,
 а внутреннему сервису нужен исходящий доступ к `api.telegram.org` (или `TELEGRAM_PROXY_URL`).
+
+## Проверка WhatsApp
+
+1. Запустите шлюз (шаг 6 выше). В `.env` должны быть `WHATSAPP_GATEWAY_URL=http://localhost:5400` и `WHATSAPP_GATEWAY_KEY`.
+2. В админке: «Channels → Add channel → WhatsApp», режим «QR connection», сохраните. Появится QR-код.
+3. На телефоне с номером, который будет отвечать клиентам: WhatsApp → Настройки → Связанные устройства →
+   Привязка устройства, отсканируйте код. Страница покажет «Connected» и номер. Лучше взять отдельный номер,
+   а не личный: шлюз работает по неофициальному протоколу WhatsApp Web (см. риски в docs/deployment.md).
+4. Напишите на этот номер с другого телефона: в Relayo появится тикет с меткой WhatsApp. Ответ из админки придёт
+   в WhatsApp с псевдонимом оператора в первой строке.
+5. Переход из виджета: выберите номер в пункте WhatsApp виджета («Настройка пунктов»), опубликуйте виджет,
+   напишите в виджет на тестовом сайте и нажмите зелёную кнопку WhatsApp. В WhatsApp подставится «My code: …» —
+   отправьте его, и переписка продолжится в том же чате тикета.
+
+Без телефона: `node tools/checks/whatsapp-gateway.cjs` проверяет всё это с поддельным шлюзом (настоящий на это время
+остановить: порт 5400).
 
 ## Полезные адреса
 

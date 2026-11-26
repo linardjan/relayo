@@ -47,7 +47,9 @@ public sealed record WidgetSnapshot(
     string? TelegramBot,
     WidgetOptions? Options = null,
     string? ButtonIconUrl = null,
-    long MaxAttachmentBytes = 0);
+    long MaxAttachmentBytes = 0,
+    string? WhatsApp = null,
+    bool WhatsAppCode = false);
 
 /// <summary>Опубликованная версия виджета. Откат — повторная публикация её настроек.</summary>
 public sealed class WidgetVersion
@@ -112,7 +114,9 @@ public sealed class WidgetPublisher(
     /// <summary>
     /// Настройки виджета в том виде, в каком их получает браузер: в опубликованном файле и в ответе /config.
     /// </summary>
-    public WidgetSnapshot Snapshot(Widget widget, string? telegramBot) => new(
+    /// <param name="whatsApp">Номер WhatsApp (только цифры), если к виджету подключён включённый канал.</param>
+    /// <param name="whatsAppCode">Канал в режиме QR: виджет открывает WhatsApp с кодом перехода, переписка продолжается.</param>
+    public WidgetSnapshot Snapshot(Widget widget, string? telegramBot, string? whatsApp = null, bool whatsAppCode = false) => new(
         widget.Id.ToString(), widget.Title, widget.Greeting, widget.AccentColor,
         widget.Position == WidgetPosition.Left ? "left" : "right",
         widget.IdentificationMode == IdentificationMode.SignedToken ? "signed_token" : "direct",
@@ -120,7 +124,9 @@ public sealed class WidgetPublisher(
         // Имя файла картинки браузеру не нужно — только адрес.
         widget.Options with { ButtonIcon = null },
         widget.Options.ButtonIcon is { } icon ? WidgetFileUrl(icon) : null,
-        widget.Options.AllowAttachments && storage.IsConfigured ? attachments.MaxBytes : 0);
+        widget.Options.AllowAttachments && storage.IsConfigured ? attachments.MaxBytes : 0,
+        whatsApp,
+        whatsApp is not null && whatsAppCode);
 
     /// <summary>Адрес файла в бакете виджетов, как его открывает браузер.</summary>
     public string? WidgetFileUrl(string name) =>
@@ -151,11 +157,14 @@ public sealed class WidgetPublisher(
         var stored = JsonSerializer.Deserialize<StoredSnapshot>(old.SnapshotJson, Json)!;
         var s = stored.Config;
         var botId = stored.TelegramBotId is { } id && await db.TelegramBots.AnyAsync(b => b.Id == id, ct) ? id : (Guid?)null;
+        var whatsAppId = stored.WhatsAppChannelId is { } wa && await db.WhatsAppChannels.AnyAsync(c => c.Id == wa, ct)
+            ? wa
+            : (Guid?)null;
         // Картинку кнопки возвращаем ту, что была в версии; версии до появления настроек их не меняют.
         var restored = s.Options is { } o ? o with { ButtonIcon = stored.ButtonIcon } : widget.Options;
         widget.Configure(stored.Name, s.IdentificationMode == "direct" ? IdentificationMode.Direct : IdentificationMode.SignedToken,
             s.Title, s.Greeting, s.AccentColor, s.Position == "left" ? WidgetPosition.Left : WidgetPosition.Right,
-            s.DefaultLocale, botId, restored.Normalize(botId is not null), time.GetUtcNow());
+            s.DefaultLocale, botId, whatsAppId, restored.Normalize(botId is not null, whatsAppId is not null), time.GetUtcNow());
         await db.SaveChangesAsync(ct);
         await PublishAsync(widget, userId, $"Rollback to v{version}", ct);
     }
@@ -169,7 +178,11 @@ public sealed class WidgetPublisher(
         var bot = widget.TelegramBotId is { } botId
             ? await db.TelegramBots.Where(b => b.Id == botId && b.IsEnabled).Select(b => b.Username).SingleOrDefaultAsync(ct)
             : null;
-        var snapshot = Snapshot(widget, bot);
+        var whatsApp = widget.WhatsAppChannelId is { } whatsAppId
+            ? await db.WhatsAppChannels.Where(c => c.Id == whatsAppId && c.IsEnabled && c.PhoneNumber != null)
+                .Select(c => new { c.PhoneNumber, c.Mode }).SingleOrDefaultAsync(ct)
+            : null;
+        var snapshot = Snapshot(widget, bot, whatsApp?.PhoneNumber, whatsApp?.Mode == Channels.WhatsAppMode.Gateway);
 
         var now = time.GetUtcNow();
         var version = (await db.WidgetVersions.Where(v => v.WidgetId == widget.Id).MaxAsync(v => (int?)v.Version, ct) ?? 0) + 1;
@@ -182,7 +195,8 @@ public sealed class WidgetPublisher(
         var publishedBy = userId is null
             ? "System"
             : await db.Users.Where(u => u.Id == userId).Select(u => u.FullName).SingleOrDefaultAsync(ct) ?? "—";
-        var stored = new StoredSnapshot(widget.Name, widget.TelegramBotId, snapshot, widget.Options.ButtonIcon);
+        var stored = new StoredSnapshot(widget.Name, widget.TelegramBotId, snapshot, widget.Options.ButtonIcon,
+            widget.WhatsAppChannelId);
         db.WidgetVersions.Add(new WidgetVersion(widget.Id, version, JsonSerializer.Serialize(stored, Json), publishedBy, note, now));
         widget.MarkPublished(version, now);
         await db.SaveChangesAsync(ct);
@@ -217,5 +231,6 @@ public sealed class WidgetPublisher(
         await db.Widgets.SingleOrDefaultAsync(w => w.Id == widgetId, ct)
         ?? throw new DomainException(ErrorCodes.WidgetNotFound, "Widget not found");
 
-    private sealed record StoredSnapshot(string Name, Guid? TelegramBotId, WidgetSnapshot Config, string? ButtonIcon = null);
+    private sealed record StoredSnapshot(string Name, Guid? TelegramBotId, WidgetSnapshot Config, string? ButtonIcon = null,
+        Guid? WhatsAppChannelId = null);
 }

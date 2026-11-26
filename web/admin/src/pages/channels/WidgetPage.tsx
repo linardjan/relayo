@@ -21,13 +21,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
-import { settingsApi, type LauncherItem, type LauncherItemType, type WidgetInput, type WidgetOptions, type WidgetRow } from '../../api/settings'
+import { settingsApi, type LauncherItem, type LauncherItemType, type WidgetInput, type WhatsAppChannel, type WidgetOptions, type WidgetRow } from '../../api/settings'
 import { formatDateTime } from '../../format'
 import { Page, SaveBar, SectionCard, SoonField, SoonTag, settingsLayout } from '../../layout/Page'
 import { errorText } from '../../settings/errors'
 
-/** В форме бот выбирается в строке пункта Telegram, поэтому у пунктов есть botId. */
-type FormItem = LauncherItem & { botId?: string | null }
+/** В форме бот выбирается в строке пункта Telegram, канал WhatsApp — в строке пункта WhatsApp. */
+type FormItem = LauncherItem & { botId?: string | null; whatsAppChannelId?: string | null }
 type FormValues = Omit<WidgetInput, 'options'> & { siteId: string; options: Omit<WidgetOptions, 'items'> & { items: FormItem[] } }
 
 /** Те же значения по умолчанию, что у сервера (WidgetOptions). */
@@ -58,6 +58,7 @@ const defaults: Omit<FormValues, 'siteId' | 'name'> = {
   position: 'Right',
   defaultLocale: 'en',
   telegramBotId: null,
+  whatsAppChannelId: null,
   options: defaultOptions,
 }
 
@@ -79,6 +80,7 @@ export function WidgetPage() {
   const widgets = useQuery({ queryKey: ['widgets'], queryFn: settingsApi.widgets })
   const sites = useQuery({ queryKey: ['sites'], queryFn: settingsApi.sites })
   const bots = useQuery({ queryKey: ['telegramBots'], queryFn: settingsApi.telegramBots })
+  const whatsApp = useQuery({ queryKey: ['whatsAppChannels'], queryFn: settingsApi.whatsAppChannels })
   const row = widgets.data?.find((w) => w.widget.id === widgetId)
   const [form] = Form.useForm<FormValues>()
   const mode = Form.useWatch('identificationMode', form)
@@ -90,24 +92,32 @@ export function WidgetPage() {
     if (isNew && sites.data) form.setFieldsValue({ ...defaults, name: '', siteId: sites.data[0]?.id })
     if (!isNew && row) {
       const options = { ...defaultOptions, ...row.widget.options }
-      const items = options.items.map((i) => (i.type === 'Telegram' ? { ...i, botId: row.widget.telegramBotId } : i))
+      const items = options.items.map((i) =>
+        i.type === 'Telegram'
+          ? { ...i, botId: row.widget.telegramBotId }
+          : i.type === 'WhatsApp'
+            ? { ...i, whatsAppChannelId: row.widget.whatsAppChannelId }
+            : i,
+      )
       form.setFieldsValue({ ...row.widget, options: { ...options, items } })
     }
   }, [form, isNew, row, sites.data, loading])
 
   const save = useMutation({
     mutationFn: ({ siteId, ...input }: FormValues) => {
-      // Бот выбирается в пункте Telegram: без такого пункта бот отключается от виджета.
+      // Бот выбирается в пункте Telegram, номер — в пункте WhatsApp: без такого пункта канал отключается от виджета.
       const formItems = input.options.items ?? []
       const telegramBotId = formItems.find((i) => i.type === 'Telegram')?.botId ?? null
-      const items: LauncherItem[] = formItems.map(({ botId: _, ...item }) => item)
-      const body: WidgetInput = { ...input, telegramBotId, options: { ...input.options, items } }
+      const whatsAppChannelId = formItems.find((i) => i.type === 'WhatsApp')?.whatsAppChannelId ?? null
+      const items: LauncherItem[] = formItems.map(({ botId: _, whatsAppChannelId: __, ...item }) => item)
+      const body: WidgetInput = { ...input, telegramBotId, whatsAppChannelId, options: { ...input.options, items } }
       return isNew ? settingsApi.createWidget(siteId, body) : settingsApi.updateWidget(widgetId, body)
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['widgets'] })
       void queryClient.invalidateQueries({ queryKey: ['sites'] })
       void queryClient.invalidateQueries({ queryKey: ['telegramBots'] })
+      void queryClient.invalidateQueries({ queryKey: ['whatsAppChannels'] })
       message.success(t('settings.saved'))
       // После создания остаёмся на странице виджета: там код вставки.
       if (isNew) navigate(`/channels/widgets/${saved.widget.id}`, { replace: true })
@@ -291,7 +301,7 @@ export function WidgetPage() {
         </SectionCard>
 
         <SectionCard title={t('widgets.items')}>
-          <LauncherItems bots={bots.data ?? []} />
+          <LauncherItems bots={bots.data ?? []} whatsApp={whatsApp.data ?? []} />
         </SectionCard>
 
         {row && (
@@ -353,10 +363,16 @@ function EmbedHints({ row }: { row: WidgetRow }) {
 }
 
 /**
- * «Настройка пунктов»: кнопки рядом с кнопкой чата — чат, Telegram (с выбором бота) и ссылки.
+ * «Настройка пунктов»: кнопки рядом с кнопкой чата — чат, Telegram (с выбором бота), WhatsApp (с выбором номера) и ссылки.
  * Порядок строк — порядок кнопок на сайте.
  */
-function LauncherItems({ bots }: { bots: { id: string; name: string; username: string; isEnabled: boolean }[] }) {
+function LauncherItems({
+  bots,
+  whatsApp,
+}: {
+  bots: { id: string; name: string; username: string; isEnabled: boolean }[]
+  whatsApp: WhatsAppChannel[]
+}) {
   const { t } = useTranslation()
   const form = Form.useFormInstance<FormValues>()
   const items = Form.useWatch(['options', 'items'], form) ?? []
@@ -364,7 +380,7 @@ function LauncherItems({ bots }: { bots: { id: string; name: string; username: s
     { value: 'Chat', label: t('widgets.itemChat'), disabled: current !== 'Chat' && items.some((i) => i.type === 'Chat') },
     { value: 'Telegram', label: t('widgets.itemTelegram'), disabled: current !== 'Telegram' && items.some((i) => i.type === 'Telegram') },
     { value: 'Link', label: t('widgets.itemLink') },
-    { value: 'WhatsApp', label: `WhatsApp · ${t('common.comingSoon')}`, disabled: true },
+    { value: 'WhatsApp', label: t('widgets.itemWhatsApp'), disabled: current !== 'WhatsApp' && items.some((i) => i.type === 'WhatsApp') },
   ]
 
   return (
@@ -390,6 +406,23 @@ function LauncherItems({ bots }: { bots: { id: string; name: string; username: s
                       options={bots.map((b) => ({
                         value: b.id,
                         label: `${b.name} (@${b.username})${b.isEnabled ? '' : ` · ${t('telegram.disabled')}`}`,
+                      }))}
+                    />
+                  </Form.Item>
+                )}
+                {type === 'WhatsApp' && (
+                  <Form.Item
+                    name={[field.name, 'whatsAppChannelId']}
+                    noStyle
+                    rules={[{ required: true, message: t('widgets.chooseWhatsApp') }]}
+                  >
+                    <Select
+                      style={{ width: 260 }}
+                      placeholder={t('widgets.chooseWhatsApp')}
+                      notFoundContent={t('widgets.noWhatsApp')}
+                      options={whatsApp.map((c) => ({
+                        value: c.id,
+                        label: `${c.name} (+${c.phoneNumber})${c.isEnabled ? '' : ` · ${t('telegram.disabled')}`}`,
                       }))}
                     />
                   </Form.Item>

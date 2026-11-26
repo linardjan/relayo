@@ -11,6 +11,10 @@ export interface WidgetConfig {
   historyDays: number
   /** Имя Telegram-бота без @, если он подключён к виджету. */
   telegramBot: string | null
+  /** Номер WhatsApp (только цифры, с кодом страны), если к виджету подключён канал WhatsApp. */
+  whatsApp?: string | null
+  /** Номер подключён к Relayo по QR: переход идёт по ссылке с кодом, переписка продолжается. */
+  whatsAppCode?: boolean
   /** Внешний вид и поведение (страница канала в админке). У старых опубликованных файлов их нет. */
   options?: WidgetOptions | null
   /** Своя картинка кнопки чата. */
@@ -20,7 +24,7 @@ export interface WidgetConfig {
 }
 
 export interface LauncherItem {
-  type: 'Chat' | 'Telegram' | 'Link'
+  type: 'Chat' | 'Telegram' | 'Link' | 'WhatsApp'
   label: string
   url?: string | null
 }
@@ -112,11 +116,18 @@ export class Api {
     return this.request('POST', '/telegram-link', undefined, visitorToken)
   }
 
+  whatsAppLink(visitorToken: string): Promise<MessengerLink> {
+    return this.request('POST', '/whatsapp-link', undefined, visitorToken)
+  }
+
   send(visitorToken: string, text: string, clientMessageId: string, files: File[] = []): Promise<Message> {
-    if (files.length === 0) return this.request('POST', '/messages', { text, clientMessageId }, visitorToken)
+    // Страница, с которой пишет клиент: оператор видит её у чата.
+    const pageUrl = location.href
+    if (files.length === 0) return this.request('POST', '/messages', { text, clientMessageId, pageUrl }, visitorToken)
     const form = new FormData()
     form.append('text', text)
     form.append('clientMessageId', clientMessageId)
+    form.append('pageUrl', pageUrl)
     for (const file of files) form.append('files', file, file.name)
     return this.request('POST', '/messages', form, visitorToken)
   }

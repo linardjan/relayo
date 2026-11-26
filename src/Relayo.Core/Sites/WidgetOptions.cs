@@ -26,6 +26,7 @@ public enum LauncherItemType
     Chat,
     Telegram,
     Link,
+    WhatsApp,
 }
 
 /// <summary>Пункт виджета: круглая кнопка рядом с кнопкой чата («Настройка пунктов» в Usedesk).</summary>
@@ -88,10 +89,10 @@ public sealed partial record WidgetOptions
     public IReadOnlyList<LauncherItem> Items { get; init; } = [new(LauncherItemType.Chat, "Online chat")];
 
     /// <summary>
-    /// Проверяет и нормализует настройки. Пункт Telegram есть, только когда к виджету подключён бот:
-    /// добавляется сам при подключении и убирается при отключении.
+    /// Проверяет и нормализует настройки. Пункт Telegram есть, только когда к виджету подключён бот,
+    /// пункт WhatsApp — когда выбран канал WhatsApp: добавляются сами при подключении и убираются при отключении.
     /// </summary>
-    public WidgetOptions Normalize(bool hasTelegramBot)
+    public WidgetOptions Normalize(bool hasTelegramBot, bool hasWhatsApp = false)
     {
         var caption = (Caption ?? string.Empty).Trim();
         var tooltip = (TooltipText ?? string.Empty).Trim();
@@ -135,12 +136,16 @@ public sealed partial record WidgetOptions
             // Бот не выбран или отключён от виджета: пункт Telegram пропадает.
             if (item.Type == LauncherItemType.Telegram && !hasTelegramBot)
                 continue;
+            if (item.Type == LauncherItemType.WhatsApp && !hasWhatsApp)
+                continue;
             items.Add(new LauncherItem(item.Type, label.Length > 0 ? label : DefaultLabel(item.Type), url));
         }
         if (!items.Any(i => i.Type == LauncherItemType.Chat))
             items.Insert(0, new LauncherItem(LauncherItemType.Chat, DefaultLabel(LauncherItemType.Chat)));
         if (hasTelegramBot && !items.Any(i => i.Type == LauncherItemType.Telegram))
             items.Add(new LauncherItem(LauncherItemType.Telegram, DefaultLabel(LauncherItemType.Telegram)));
+        if (hasWhatsApp && !items.Any(i => i.Type == LauncherItemType.WhatsApp))
+            items.Add(new LauncherItem(LauncherItemType.WhatsApp, DefaultLabel(LauncherItemType.WhatsApp)));
         if (items.Count > MaxItems)
             throw Invalid($"Up to {MaxItems} items");
 
@@ -160,6 +165,7 @@ public sealed partial record WidgetOptions
     {
         LauncherItemType.Chat => "Online chat",
         LauncherItemType.Telegram => "Telegram",
+        LauncherItemType.WhatsApp => "WhatsApp",
         _ => "Link",
     };
 

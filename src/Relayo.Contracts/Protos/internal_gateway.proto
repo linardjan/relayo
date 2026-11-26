@@ -33,6 +33,9 @@ service InternalGateway {
   // Одноразовая ссылка t.me/<bot>?start=<token> для перехода из виджета в Telegram.
   rpc CreateTelegramLink (VisitorRequest) returns (MessengerLink);
 
+  // Ссылка wa.me/<номер>?text=My code: <код> для перехода из виджета в WhatsApp (номер подключён по QR).
+  rpc CreateWhatsAppLink (VisitorRequest) returns (MessengerLink);
+
   // Обновление из webhook Telegram. Секрет из заголовка X-Telegram-Bot-Api-Secret-Token
   // проверяет внутренний сервис: публичный сервис секретов ботов не знает.
   rpc HandleTelegramUpdate (TelegramUpdateRequest) returns (TelegramUpdateReply);
@@ -80,6 +83,10 @@ message WidgetConfig {
   // Публичный сервис передаёт их виджету как есть.
   string options_json = 14;
   string button_icon_url = 15;
+  // Номер WhatsApp (только цифры, с кодом страны), если к виджету подключён канал WhatsApp: кнопка ведёт на wa.me/<номер>.
+  string whatsapp = 16;
+  // Номер подключён по QR: кнопка открывает WhatsApp с кодом перехода (CreateWhatsAppLink), переписка продолжается.
+  bool whatsapp_code = 17;
 }
 
 message StartVisitorRequest {
@@ -119,6 +126,8 @@ message SendVisitorMessageRequest {
   string client_message_id = 4;
   // Вложения. Тип и размер проверяет внутренний сервис; публичный — только размер и заявленный тип.
   repeated UploadedFile files = 5;
+  // Страница сайта, с которой пишет клиент. Пусто — неизвестна.
+  string page_url = 6;
 }
 
 message UploadedFile {

@@ -33,6 +33,9 @@ public sealed class Client
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>id клиента в Usedesk: к нему привязываются перенесённые тикеты и чаты.</summary>
+    public long? UsedeskId { get; private set; }
+
     public bool IsAnonymous => ExternalClientId is null;
 
     public static Client CreateAnonymous(Guid siteId, DateTimeOffset now) =>
@@ -98,7 +101,7 @@ public sealed class ClientIdentity
     /// </summary>
     public string ExternalId { get; private set; } = string.Empty;
 
-    /// <summary>Подключение канала, через которое пишет клиент: Telegram-бот, позже номер WhatsApp.</summary>
+    /// <summary>Подключение канала, через которое пишет клиент: Telegram-бот или номер WhatsApp.</summary>
     public Guid? ChannelId { get; private set; }
 
     /// <summary>Имя в мессенджере: «Иван Петров (@ivan)». Видят только операторы.</summary>
@@ -151,6 +154,32 @@ public sealed class ClientIdentity
         var separator = ExternalId.IndexOf(':');
         return Type == IdentityType.Telegram && ChannelId is not null && separator > 0
                && long.TryParse(ExternalId.AsSpan(separator + 1), out chatId);
+    }
+
+    /// <param name="chatJid">Куда отвечать в WhatsApp: «номер@s.whatsapp.net» или скрытый id «…@lid».</param>
+    public static ClientIdentity CreateWhatsApp(Guid channelId, string chatJid, Guid siteId, DateTimeOffset now) => new()
+    {
+        Type = IdentityType.WhatsApp,
+        SiteId = siteId,
+        ChannelId = channelId,
+        ExternalId = WhatsAppExternalId(channelId, chatJid),
+        CreatedAt = now,
+        LastSeenAt = now,
+    };
+
+    /// <summary>У каждого номера компании своя переписка с человеком: «id канала:JID чата».</summary>
+    public static string WhatsAppExternalId(Guid channelId, string chatJid) => $"{channelId:N}:{chatJid}";
+
+    /// <summary>Куда отправлять ответ в WhatsApp: канал (номер компании) и чат клиента.</summary>
+    public bool TryGetWhatsAppChat(out Guid channelId, out string chatJid)
+    {
+        channelId = ChannelId ?? Guid.Empty;
+        chatJid = string.Empty;
+        var separator = ExternalId.IndexOf(':');
+        if (Type != IdentityType.WhatsApp || ChannelId is null || separator <= 0 || separator == ExternalId.Length - 1)
+            return false;
+        chatJid = ExternalId[(separator + 1)..];
+        return true;
     }
 
     public void SetDisplayName(string? name)

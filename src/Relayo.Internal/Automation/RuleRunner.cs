@@ -1,6 +1,7 @@
 using Relayo.Core.Automation;
 using Relayo.Core.Conversations;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Messaging;
 using Relayo.Internal.Realtime;
 using Wolverine;
@@ -60,10 +61,13 @@ public sealed class RuleRunner(IServiceScopeFactory scopes)
         var widgets = services.GetRequiredService<WidgetEvents>();
         var operators = services.GetRequiredService<OperatorNotifier>();
         var telegram = services.GetRequiredService<TelegramOutbox>();
+        var whatsApp = services.GetRequiredService<WhatsAppOutbox>();
         foreach (var message in result.Messages)
         {
             if (message.Telegram is { } delivery)
                 await telegram.SendTextAsync(delivery.BotId, delivery.ChatId, delivery.Text);
+            if (message.WhatsApp is { } waDelivery)
+                await whatsApp.SendTextAsync(waDelivery.ChannelId, waDelivery.ChatJid, waDelivery.Text);
             await widgets.PublishAsync(message.Widget, message.Recipients);
             await operators.MessageCreatedAsync(result.TicketId, message.Operator);
         }

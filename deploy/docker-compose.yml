@@ -4,9 +4,12 @@
 #   internal — внутренняя сеть: MS SQL, RabbitMQ, Redis, Relayo.Internal, админка
 #   public   — сервис для интернета: Relayo.Public (без доступа к БД)
 #   storage  — S3-хранилище для стенда (RustFS). В бою — MinIO компании, этот профиль не нужен
+#   whatsapp — шлюз WhatsApp (номера по QR-коду), во внутренней сети рядом с Relayo.Internal.
+#              Без него номера WhatsApp работают только в режиме «только ссылка».
 #
 # Один сервер (тестовый стенд):
 #   docker compose --profile internal --profile public up -d --build
+#   (+ --profile whatsapp и WHATSAPP_GATEWAY_URL / WHATSAPP_GATEWAY_KEY в .env — переписка в WhatsApp)
 # Два сервера (внутренняя сеть и зона для интернета):
 #   внутренний: docker compose --profile internal up -d --build
 #   публичный:  docker compose --profile public up -d --build
@@ -167,6 +170,24 @@ services:
       # Перед админкой должен стоять прокси с HTTPS (cookie входа помечены Secure).
       - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-8080}:8080"
 
+  # Шлюз WhatsApp: держит сессии подключённых номеров. Один экземпляр на все номера — сессия номера
+  # живёт в одном процессе (второй экземпляр с тем же томом выбьет первый). Порт наружу не публикуется.
+  relayo-whatsapp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.whatsapp
+    image: relayo-whatsapp:${RELAYO_VERSION:-latest}
+    profiles: ["whatsapp"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      WHATSAPP_GATEWAY_KEY: ${WHATSAPP_GATEWAY_KEY}
+      WHATSAPP_INTERNAL_URL: ${WHATSAPP_INTERNAL_URL:-http://relayo-internal:5100}
+      ATTACHMENTS_MAX_SIZE_MB: ${ATTACHMENTS_MAX_SIZE_MB:-20}
+      # Шлюзу нужен прямой исходящий доступ к серверам WhatsApp (web.whatsapp.com, *.whatsapp.net, *.whatsapp.com:443).
+    volumes:
+      - whatsapp-sessions:/data/sessions
+
   relayo-public:
     build:
       context: ..
@@ -212,6 +233,7 @@ networks:
         - subnet: ${RELAYO_SUBNET:-172.30.0.0/24}
 
 volumes:
+  whatsapp-sessions:
   mssql-data:
   rabbitmq-data:
   s3-data:

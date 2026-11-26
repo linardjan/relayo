@@ -216,7 +216,7 @@ public sealed class RuleService(RelayoDbContext db, TimeProvider time)
             throw Invalid($"Value “{value}” is not valid here");
     }
 
-    /// <summary>Канал задаётся как widget:&lt;id&gt; или telegram:&lt;id&gt;.</summary>
+    /// <summary>Канал задаётся как widget:&lt;id&gt;, telegram:&lt;id&gt; или whatsapp:&lt;id&gt;.</summary>
     private async Task<bool> ChannelExistsAsync(string value, CancellationToken ct)
     {
         var parts = value.Split(':', 2);
@@ -226,6 +226,7 @@ public sealed class RuleService(RelayoDbContext db, TimeProvider time)
         {
             "widget" => await db.Widgets.AnyAsync(w => w.Id == id, ct),
             "telegram" => await db.TelegramBots.AnyAsync(b => b.Id == id, ct),
+            "whatsapp" => await db.WhatsAppChannels.AnyAsync(c => c.Id == id, ct),
             _ => false,
         };
     }

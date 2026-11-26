@@ -28,6 +28,11 @@ public static class ErrorCodes
     public const string WeakPassword = "weak_password";
     public const string LastAdmin = "last_admin";
     public const string BotNotFound = "bot_not_found";
+    public const string WhatsAppChannelNotFound = "whatsapp_channel_not_found";
+    public const string PhoneTaken = "phone_taken";
+    public const string WhatsAppNotConnected = "whatsapp_not_connected";
+    public const string WhatsAppGatewayNotConfigured = "whatsapp_gateway_not_configured";
+    public const string WhatsAppGatewayUnavailable = "whatsapp_gateway_unavailable";
     public const string RuleNotFound = "rule_not_found";
     public const string StorageNotConfigured = "storage_not_configured";
     public const string HasHistory = "has_history";

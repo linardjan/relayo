@@ -22,3 +22,6 @@ dist/
 # Собранный виджет (web/widget → npm run build)
 src/Relayo.Public/wwwroot/widget/
 tools/checks/out/
+
+# Ключи сессий WhatsApp (доступ к номерам)
+src/Relayo.WhatsApp/sessions/

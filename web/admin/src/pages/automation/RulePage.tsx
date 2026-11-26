@@ -317,6 +317,7 @@ function ValueInput({
   const { t } = useTranslation()
   const widgets = useQuery({ queryKey: ['widgets'], queryFn: settingsApi.widgets, enabled: kind === 'Channel' })
   const bots = useQuery({ queryKey: ['telegramBots'], queryFn: settingsApi.telegramBots, enabled: kind === 'Channel' })
+  const whatsApp = useQuery({ queryKey: ['whatsAppChannels'], queryFn: settingsApi.whatsAppChannels, enabled: kind === 'Channel' })
   const sites = useQuery({ queryKey: ['sites'], queryFn: settingsApi.sites, enabled: kind === 'Site' })
   const users = useQuery({ queryKey: ['users'], queryFn: settingsApi.users, enabled: kind === 'User' })
 
@@ -333,6 +334,7 @@ function ValueInput({
       return select([
         ...(widgets.data ?? []).map(({ widget: w }) => ({ value: `widget:${w.id}`, label: `${w.name} (${t('channels.widget')})` })),
         ...(bots.data ?? []).map((b) => ({ value: `telegram:${b.id}`, label: `${b.name} (Telegram)` })),
+        ...(whatsApp.data ?? []).map((c) => ({ value: `whatsapp:${c.id}`, label: `${c.name} (WhatsApp)` })),
       ])
     case 'Site':
       return select((sites.data ?? []).map((s) => ({ value: s.id, label: `${s.name} (${s.code})` })))

@@ -647,6 +647,14 @@ body,
   background: #2093c6;
 }
 
+.channel-tile.whatsapp {
+  background: #1fa463;
+}
+
+.channel-tile.whatsapp:hover {
+  background: #1a8f56;
+}
+
 .channel-tile.disabled {
   background: #9aa3ad;
 }
@@ -1026,4 +1034,56 @@ body,
 
 .agent-name .ant-typography {
   font-size: 12px;
+}
+
+/* Канал WhatsApp: место под QR-код подключения номера */
+.whatsapp-qr {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 560px;
+  padding: 14px 16px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.whatsapp-qr-icon {
+  font-size: 64px;
+  color: #bfbfbf;
+}
+
+
+/* Живой QR-код подключения WhatsApp и подсказка рядом */
+.whatsapp-qr-live {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  max-width: 720px;
+}
+
+.whatsapp-qr-live .ant-qrcode {
+  flex-shrink: 0;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+}
+
+/* Внутренняя заметка: видят только сотрудники */
+.msg.internal .msg-card {
+  background: #fffbe6;
+  border: 1px dashed #ffd666;
+}
+
+.msg-note-label {
+  color: #ad8b00;
+  font-size: 12px;
+}
+
+.composer.note {
+  background: #fffbe6;
+}
+
+.ticket-page-url {
+  word-break: break-all;
 }

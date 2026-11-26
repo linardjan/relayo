@@ -33,6 +33,7 @@ dotnet build Relayo.slnx
 dotnet run --project src/Relayo.Internal --no-build > <scratchpad>/logs/internal.log 2>&1
 dotnet run --project src/Relayo.Public   --no-build > <scratchpad>/logs/public.log 2>&1
 cd web/admin && npm run dev                # только если 5173 не слушается
+cd src/Relayo.WhatsApp && npm run dev      # шлюз WhatsApp :5400 (только если нужен WhatsApp по QR)
 ```
 
 Дождаться готовности перед проверками (Monitor с until-циклом, не sleep):
@@ -68,12 +69,15 @@ Internal применяет миграции и DevSeed при старте; Pub
 | Правила: API | `node tools/checks/rules.cjs` |
 | Правила: движок, таймеры, лимиты, журнал | `node tools/checks/engine.cjs` |
 | Telegram (обновления подделываются через вебхук Public) | `node tools/checks/telegram.cjs` |
+| Канал WhatsApp «только ссылка» и переход из виджета на wa.me | `node tools/checks/whatsapp.cjs` |
+| WhatsApp по QR без телефона (поддельный шлюз на 5400; настоящий шлюз остановить) | `node tools/checks/whatsapp-gateway.cjs` |
 | LDAP/AD (нужен профиль `ad` и засеянный Samba) | `node tools/checks/ldap.cjs` |
 | Агенты, группы, статусы, поля из AD | `node tools/checks/agents.cjs` |
 | Публикация виджета в S3, версии, откат | `node tools/checks/publish.cjs` |
 | Вложения (S3), настройки канала, картинка кнопки | `node tools/checks/files.cjs` |
 | Несколько экземпляров Internal + Redis (нужен второй на 5110/5111, запускать последней) | `node tools/checks/scale.cjs` |
 | Новые обращения: счётчик во вкладке, подсветка | `node tools/checks/unread.cjs` |
+| Заметки, страница сайта у чата, группа тикета | `node tools/checks/notes.cjs` |
 | Боевой стенд `deploy/` | `node tools/checks/deploy.cjs`, `node tools/checks/stand-s3.cjs` |
 
 Если проверки не хватает для новой функции — дописать её в `tools/checks` в том же стиле (`check(name, ok, extra)`, уникальный `run` в именах данных, уборка в конце).

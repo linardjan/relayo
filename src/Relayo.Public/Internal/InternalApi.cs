@@ -65,6 +65,10 @@ public sealed class InternalApi(InternalGateway.InternalGatewayClient client)
         Call(() => client.CreateTelegramLinkAsync(new VisitorRequest { WidgetId = widgetId, VisitorToken = visitorToken },
             deadline: Deadline(), cancellationToken: ct).ResponseAsync);
 
+    public Task<MessengerLink> CreateWhatsAppLinkAsync(string widgetId, string visitorToken, CancellationToken ct) =>
+        Call(() => client.CreateWhatsAppLinkAsync(new VisitorRequest { WidgetId = widgetId, VisitorToken = visitorToken },
+            deadline: Deadline(), cancellationToken: ct).ResponseAsync);
+
     public Task<TelegramUpdateReply> HandleTelegramUpdateAsync(TelegramUpdateRequest request, CancellationToken ct) =>
         Call(() => client.HandleTelegramUpdateAsync(request, deadline: Deadline(), cancellationToken: ct).ResponseAsync);
 

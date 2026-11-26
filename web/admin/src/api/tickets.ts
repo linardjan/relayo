@@ -3,6 +3,9 @@ import { api, type User } from './client'
 export type TicketStatus = 'New' | 'InProgress' | 'WaitingClient' | 'Closed'
 export type MessageAuthor = 'Client' | 'Operator' | 'System'
 export type Channel = 'Widget' | 'Telegram' | 'WhatsApp'
+export type TicketSource = 'Relayo' | 'Usedesk'
+/** Internal — заметка: её видят только сотрудники. */
+export type MessageVisibility = 'Public' | 'Internal'
 
 export interface TicketSummary {
   id: string
@@ -19,6 +22,18 @@ export interface TicketSummary {
   lastMessagePreview: string
   /** Канал, из которого клиент написал последним. */
   lastClientChannel: Channel
+  subject: string | null
+  /** Usedesk — тикет перенесён из Usedesk. */
+  source: TicketSource
+  /** Канал в Usedesk, как он там записан (email, telephony, api…). */
+  sourceChannel: string | null
+  groupId: string | null
+  groupName: string | null
+}
+
+export interface GroupOption {
+  id: string
+  name: string
 }
 
 export interface OperatorMessage {
@@ -32,6 +47,7 @@ export interface OperatorMessage {
   /** Автоответ правила, а не ответ сотрудника. */
   automated?: boolean
   attachments?: Attachment[] | null
+  visibility: MessageVisibility
 }
 
 export interface Attachment {
@@ -50,6 +66,8 @@ export interface ChatView {
   /** Куда уйдёт ответ: канал, из которого клиент написал последним. */
   replyChannel: Channel
   messages: OperatorMessage[]
+  /** Страница сайта, с которой клиент начал писать в виджет. */
+  pageUrl: string | null
 }
 
 export interface TicketDetails {
@@ -68,16 +86,23 @@ export interface TicketDetails {
 export const ticketsApi = {
   list: (closed: boolean) => api<TicketSummary[]>(`/api/tickets?closed=${closed}`),
   get: (id: string) => api<TicketDetails>(`/api/tickets/${id}`),
-  reply: (id: string, chatId: string, text: string, files: File[] = []) => {
-    if (files.length === 0)
-      return api<OperatorMessage>(`/api/tickets/${id}/messages`, { method: 'POST', body: JSON.stringify({ chatId, text }) })
-    const form = new FormData()
-    form.append('chatId', chatId)
-    form.append('text', text)
-    for (const file of files) form.append('files', file, file.name)
-    return api<OperatorMessage>(`/api/tickets/${id}/messages`, { method: 'POST', body: form })
-  },
+  reply: (id: string, chatId: string, text: string, files: File[] = []) => post(`/api/tickets/${id}/messages`, chatId, text, files),
+  /** Внутренняя заметка: клиенту не уходит. */
+  note: (id: string, chatId: string, text: string, files: File[] = []) => post(`/api/tickets/${id}/notes`, chatId, text, files),
+  groups: () => api<GroupOption[]>('/api/tickets/groups'),
+  setGroup: (id: string, groupId: string | null) =>
+    api<TicketSummary>(`/api/tickets/${id}/group`, { method: 'PUT', body: JSON.stringify({ groupId }) }),
   assign: (id: string) => api<TicketSummary>(`/api/tickets/${id}/assign`, { method: 'POST' }),
   close: (id: string) => api<TicketSummary>(`/api/tickets/${id}/close`, { method: 'POST' }),
   setAlias: (alias: string) => api<User>('/api/me/alias', { method: 'PUT', body: JSON.stringify({ alias }) }),
+}
+
+/** Сообщение в тикет: JSON без файлов или multipart с файлами. */
+function post(url: string, chatId: string, text: string, files: File[]) {
+  if (files.length === 0) return api<OperatorMessage>(url, { method: 'POST', body: JSON.stringify({ chatId, text }) })
+  const form = new FormData()
+  form.append('chatId', chatId)
+  form.append('text', text)
+  for (const file of files) form.append('files', file, file.name)
+  return api<OperatorMessage>(url, { method: 'POST', body: form })
 }

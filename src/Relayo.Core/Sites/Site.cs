@@ -175,21 +175,27 @@ public sealed class Widget
     /// <summary>Какого Telegram-бота открывает кнопка «Continue in Telegram». Пусто — кнопки нет.</summary>
     public Guid? TelegramBotId { get; private set; }
 
+    /// <summary>На какой номер WhatsApp ведёт кнопка WhatsApp. Пусто — кнопки нет.</summary>
+    public Guid? WhatsAppChannelId { get; private set; }
+
     /// <summary>Внешний вид и поведение на сайте: подпись, кнопка, подсказка, звук, пункты.</summary>
     public WidgetOptions Options { get; private set; } = WidgetOptions.Default;
 
     public DateTimeOffset CreatedAt { get; private set; }
 
     public void Configure(string name, IdentificationMode mode, string title, string greeting, string accentColor,
-        WidgetPosition position, string defaultLocale, Guid? telegramBotId, WidgetOptions options, DateTimeOffset now)
+        WidgetPosition position, string defaultLocale, Guid? telegramBotId, Guid? whatsAppChannelId, WidgetOptions options,
+        DateTimeOffset now)
     {
         var changed = Name != name || IdentificationMode != mode || Title != title || Greeting != greeting
                       || AccentColor != accentColor || Position != position || DefaultLocale != defaultLocale
-                      || TelegramBotId != telegramBotId || !SameOptions(Options, options);
+                      || TelegramBotId != telegramBotId || WhatsAppChannelId != whatsAppChannelId
+                      || !SameOptions(Options, options);
         if (changed)
             UpdatedAt = now;
         Options = options;
         TelegramBotId = telegramBotId;
+        WhatsAppChannelId = whatsAppChannelId;
         Name = name;
         IdentificationMode = mode;
         Title = title;
@@ -204,6 +210,14 @@ public sealed class Widget
     {
         TelegramBotId = null;
         Options = Options with { Items = Options.Items.Where(i => i.Type != LauncherItemType.Telegram).ToList() };
+        UpdatedAt = now;
+    }
+
+    /// <summary>Канал WhatsApp удалён: кнопка WhatsApp пропадает из виджета.</summary>
+    public void DetachWhatsAppChannel(DateTimeOffset now)
+    {
+        WhatsAppChannelId = null;
+        Options = Options with { Items = Options.Items.Where(i => i.Type != LauncherItemType.WhatsApp).ToList() };
         UpdatedAt = now;
     }
 

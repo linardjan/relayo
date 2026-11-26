@@ -51,6 +51,8 @@ internal sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
         b.Property(w => w.DefaultLocale).HasMaxLength(16);
         b.HasOne(w => w.Site).WithMany().HasForeignKey(w => w.SiteId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<TelegramBot>().WithMany().HasForeignKey(w => w.TelegramBotId).OnDelete(DeleteBehavior.SetNull);
+        b.Property(w => w.WhatsAppChannelId).HasColumnName("whatsapp_channel_id");
+        b.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(w => w.WhatsAppChannelId).OnDelete(DeleteBehavior.SetNull);
         b.Property(w => w.PublicKey).HasMaxLength(Widget.PublicKeyLength).IsCaseSensitive();
         // Внешний вид и поведение — один документ: читается и меняется только вместе с виджетом.
         b.Property(w => w.Options)
@@ -92,6 +94,7 @@ internal sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
         // У анонимных клиентов clientId пустой, уникальность только для заполненных.
         b.HasIndex(c => new { c.SiteId, c.ExternalClientId }).IsUnique()
             .HasFilter("external_client_id IS NOT NULL");
+        b.HasIndex(c => c.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
         b.HasOne<Site>().WithMany().HasForeignKey(c => c.SiteId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -121,6 +124,10 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         b.Property(t => t.Status).HasConversion<string>().HasMaxLength(16);
         b.Property(t => t.LastMessagePreview).HasMaxLength(Ticket.PreviewMaxLength);
         b.Property(t => t.LastClientChannel).HasConversion<string>().HasMaxLength(16);
+        b.Property(t => t.Subject).HasMaxLength(Ticket.SubjectMaxLength);
+        b.Property(t => t.Source).HasConversion<string>().HasMaxLength(16);
+        b.Property(t => t.SourceChannel).HasMaxLength(Ticket.SourceChannelMaxLength);
+        b.HasOne<Users.AgentGroup>().WithMany().HasForeignKey(t => t.GroupId).OnDelete(DeleteBehavior.SetNull);
         b.Ignore(t => t.IsOpen);
         b.HasIndex(t => new { t.ClientId, t.Status });
         b.HasIndex(t => new { t.Status, t.LastMessageAt });
@@ -135,6 +142,8 @@ internal sealed class ChatConfiguration : IEntityTypeConfiguration<Chat>
     {
         b.HasKey(c => c.Id);
         b.HasIndex(c => new { c.ClientId, c.LastMessageAt });
+        b.HasIndex(c => c.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
+        b.Property(c => c.PageUrl).HasMaxLength(Chat.PageUrlMaxLength);
         b.HasOne<Client>().WithMany().HasForeignKey(c => c.ClientId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -152,6 +161,11 @@ internal sealed class MessageConfiguration : IEntityTypeConfiguration<Message>
         b.Property(m => m.Text).HasMaxLength(Message.TextMaxLength);
         b.Property(m => m.ClientMessageId).HasMaxLength(Message.ClientMessageIdMaxLength).IsCaseSensitive();
         b.Ignore(m => m.IsAutomated);
+        b.Ignore(m => m.IsInternal);
+        b.Property(m => m.Visibility).HasConversion<string>().HasMaxLength(16);
+        // Повторный импорт из Usedesk. Таблица секционирована, поэтому индекс с датой и не уникальный:
+        // уникальность проверяет импорт.
+        b.HasIndex(m => new { m.UsedeskId, m.CreatedAt }).HasFilter("usedesk_id IS NOT NULL");
         b.HasIndex(m => new { m.ChatId, m.CreatedAt });
         b.HasIndex(m => new { m.VisitorIdentityId, m.CreatedAt });
         // Есть ли у сотрудника переписка (нельзя удалить учётку с историей).
@@ -184,6 +198,37 @@ internal sealed class TelegramBotConfiguration : IEntityTypeConfiguration<Telegr
         b.Property(t => t.Username).HasMaxLength(TelegramBot.UsernameMaxLength);
         b.HasIndex(t => t.TelegramId).IsUnique();
         b.HasOne<Site>().WithMany().HasForeignKey(t => t.SiteId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class WhatsAppChannelConfiguration : IEntityTypeConfiguration<WhatsAppChannel>
+{
+    public void Configure(EntityTypeBuilder<WhatsAppChannel> b)
+    {
+        b.ToTable("whatsapp_channels");
+        b.HasKey(c => c.Id);
+        b.Property(c => c.Name).HasMaxLength(WhatsAppChannel.NameMaxLength);
+        b.Property(c => c.Mode).HasConversion<string>().HasMaxLength(16);
+        b.Property(c => c.PhoneNumber).HasMaxLength(WhatsAppChannel.PhoneMaxLength).IsCaseSensitive();
+        b.Property(c => c.AccountName).HasMaxLength(WhatsAppChannel.AccountNameMaxLength);
+        // Не уникален: один номер можно подключить по QR, пока где-то остался канал «только ссылка» с ним же.
+        b.HasIndex(c => c.PhoneNumber);
+        b.Ignore(c => c.CanRedirect);
+        b.HasOne<Site>().WithMany().HasForeignKey(c => c.SiteId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class WhatsAppLinkCodeConfiguration : IEntityTypeConfiguration<WhatsAppLinkCode>
+{
+    public void Configure(EntityTypeBuilder<WhatsAppLinkCode> b)
+    {
+        b.ToTable("whatsapp_link_codes");
+        b.HasKey(c => c.Id);
+        b.Property(c => c.CodeHash).HasMaxLength(64);
+        b.HasIndex(c => c.CodeHash).IsUnique();
+        b.HasIndex(c => c.ExpiresAt);
+        b.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(c => c.ChannelId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<ClientIdentity>().WithMany().HasForeignKey(c => c.VisitorIdentityId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 
