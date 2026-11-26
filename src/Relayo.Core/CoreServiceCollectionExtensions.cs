@@ -37,6 +37,7 @@ public static class CoreServiceCollectionExtensions
         services.AddScoped<SiteSettingsService>();
         services.AddScoped<Channels.WhatsAppChannelService>();
         services.AddScoped<Channels.WhatsAppConversationService>();
+        services.AddScoped<Channels.EmailChannelService>();
         services.AddScoped<WidgetPublisher>();
         services.AddScoped<UserAdminService>();
         services.AddSingleton<Directory.LdapDirectory>();

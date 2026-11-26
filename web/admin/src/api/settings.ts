@@ -150,6 +150,56 @@ export interface WhatsAppConnection {
   reason: string | null
 }
 
+/** Шифрование соединения с почтовым сервером. */
+export type MailSecurity = 'Ssl' | 'StartTls' | 'None'
+export type EmailQuoting = 'SendToClient' | 'DoNotSend'
+
+export interface MailServer {
+  email: string
+  host: string
+  port: number
+  security: MailSecurity
+  /** null — входить по адресу. */
+  username: string | null
+  hasPassword: boolean
+}
+
+export interface EmailChannel {
+  id: string
+  name: string
+  siteId: string
+  siteCode: string
+  isEnabled: boolean
+  forwardCreatesTicket: boolean
+  quoting: EmailQuoting
+  imap: MailServer
+  smtp: MailServer
+  lastCheckAt: string | null
+  lastCheckOk: boolean | null
+  lastCheckMessage: string | null
+  createdAt: string
+}
+
+export interface MailServerInput {
+  email: string
+  host: string
+  port: number
+  security: MailSecurity
+  username?: string | null
+  /** Пусто при изменении — оставить сохранённый пароль. */
+  password?: string
+}
+
+export interface EmailChannelInput {
+  name: string
+  siteId: string
+  isEnabled: boolean
+  forwardCreatesTicket: boolean
+  quoting: EmailQuoting
+  imap: MailServerInput
+  smtp: MailServerInput
+}
+
 export interface StaffUser {
   id: string
   login: string
@@ -262,6 +312,12 @@ export const settingsApi = {
   connectWhatsApp: (id: string) => api<WhatsAppConnection>(`/api/settings/whatsapp-channels/${id}/connect`, json('POST')),
   disconnectWhatsApp: (id: string) =>
     api<WhatsAppChannel>(`/api/settings/whatsapp-channels/${id}/disconnect`, json('POST')),
+  emailChannels: () => api<EmailChannel[]>('/api/settings/email-channels'),
+  createEmailChannel: (input: EmailChannelInput) => api<EmailChannel>('/api/settings/email-channels', json('POST', input)),
+  updateEmailChannel: (id: string, input: EmailChannelInput) =>
+    api<EmailChannel>(`/api/settings/email-channels/${id}`, json('PUT', input)),
+  checkEmailChannel: (id: string) => api<EmailChannel>(`/api/settings/email-channels/${id}/check`, json('POST')),
+  deleteEmailChannel: (id: string) => api<void>(`/api/settings/email-channels/${id}`, json('DELETE')),
   channelCounts: () =>
     api<{ widgets: Record<string, number>; telegramBots: Record<string, number>; whatsAppChannels: Record<string, number> }>(
       '/api/settings/channels/counts',

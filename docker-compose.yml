@@ -166,6 +166,20 @@ services:
       - samba-var:/usr/local/samba/var
       - ./tools/test-ad:/seed:ro
 
+  # Тестовая БД Usedesk (MySQL) для проверки импорта. Только с профилем "usedesk".
+  # Схема и фейковые данные — tools/usedesk-mock, загружаются при первом запуске.
+  usedesk-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    profiles: ["usedesk"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${TEST_USEDESK_MYSQL_PASSWORD}
+      MYSQL_DATABASE: usedesk
+    ports:
+      - "${TEST_USEDESK_MYSQL_PORT}:3306"
+    volumes:
+      - ./tools/usedesk-mock:/docker-entrypoint-initdb.d:ro
+
 volumes:
   mssql-data:
   redis-data:

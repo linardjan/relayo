@@ -14,7 +14,7 @@
 | Где | Что |
 |---|---|
 | `src/Relayo.Core` | Домен и EF Core (MS SQL Server, snake_case). Папки по областям: `Conversations`, `Clients`, `Channels`, `Sites` (виджеты и их `WidgetOptions`), `Files` (вложения), `Users`, `Directory` (LDAP), `Automation` (правила), `Auth`, `Security`, `Data` (конфигурации, миграции, DevSeed, `DbLocks`) |
-| `src/Relayo.Internal` | Внутренний сервис: API админки `:5100` (`Api/*Endpoints.cs`), gRPC `:5101` для Public, SignalR `OperatorHub`, Wolverine-обработчики, Telegram (`Channels/Telegram`), правила (`Automation/RuleRunner.cs`), S3 (`Storage`) |
+| `src/Relayo.Internal` | Внутренний сервис: API админки `:5100` (`Api/*Endpoints.cs`), gRPC `:5101` для Public, SignalR `OperatorHub`, Wolverine-обработчики, Telegram (`Channels/Telegram`), правила (`Automation/RuleRunner.cs`), S3 (`Storage`), временный импорт из Usedesk (`Usedesk`, MySQL) |
 | `src/Relayo.Public` | Публичный сервис `:5200`: API виджета, `WidgetHub`, вебхук Telegram. **Без доступа к БД** — всё через gRPC к Internal (это проверяет `ArchitectureTests`) |
 | `src/Relayo.WhatsApp` | Шлюз WhatsApp на Node.js (Baileys, протокол WhatsApp Web) `:5400`: номера по QR-коду, входящие → `POST /api/whatsapp-gateway/...` Internal, ответы ← очередь `whatsapp-outgoing`. Ключ `WHATSAPP_GATEWAY_KEY`, сессии в `sessions/` (не коммитить). Один экземпляр |
 | `src/Relayo.Contracts` | `Protos/internal_gateway.proto` и сообщения шины |

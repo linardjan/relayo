@@ -5,6 +5,7 @@ using Relayo.Core.Channels;
 using Relayo.Core.Directory;
 using Relayo.Core.Sites;
 using Relayo.Core.Users;
+using Relayo.Internal.Channels.Email;
 using Relayo.Internal.Channels.Telegram;
 using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Configuration;
@@ -154,6 +155,26 @@ internal static class SettingsEndpoints
             return Results.NoContent();
         });
         settings.MapWhatsAppConnectionEndpoints();
+        settings.MapUsedeskEndpoints();
+
+        // Почтовые каналы. Сохранение сразу проверяет подключение: результат виден на той же странице.
+        settings.MapGet("/email-channels", (EmailChannelService service, CancellationToken ct) => service.ListAsync(ct));
+        settings.MapPost("/email-channels", async (EmailChannelInput input, EmailChannelService service,
+            EmailChannelChecker checker, CancellationToken ct) =>
+            await checker.CheckAsync((await service.CreateAsync(input, ct)).Id, ct));
+        settings.MapPut("/email-channels/{id:guid}", async (Guid id, EmailChannelInput input, EmailChannelService service,
+            EmailChannelChecker checker, CancellationToken ct) =>
+        {
+            await service.UpdateAsync(id, input, ct);
+            return await checker.CheckAsync(id, ct);
+        });
+        settings.MapPost("/email-channels/{id:guid}/check", (Guid id, EmailChannelChecker checker, CancellationToken ct) =>
+            checker.CheckAsync(id, ct));
+        settings.MapDelete("/email-channels/{id:guid}", async (Guid id, EmailChannelService service, CancellationToken ct) =>
+        {
+            await service.DeleteAsync(id, ct);
+            return Results.NoContent();
+        });
 
         // Пользователи
         settings.MapGet("/users", (UserAdminService service, CancellationToken ct) => service.ListAsync(ct));

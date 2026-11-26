@@ -62,6 +62,12 @@ public sealed partial class WhatsAppChannel
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>id канала Usedesk (company_email_channels.id), из которого перенесён канал: повторный импорт его не дублирует,
+    /// перенесённая история находит по нему канал.</summary>
+    public int? UsedeskChannelId { get; private set; }
+
+    public void LinkUsedeskChannel(int channelId) => UsedeskChannelId = channelId;
+
     /// <summary>Номер, на который виджет может вести посетителя: есть и канал включён.</summary>
     public bool CanRedirect => IsEnabled && PhoneNumber is not null;
 

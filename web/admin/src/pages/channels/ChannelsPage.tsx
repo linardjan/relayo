@@ -1,5 +1,5 @@
 import { Button, Card, Dropdown, Empty, Spin, Typography } from 'antd'
-import { DownOutlined, MessageOutlined, PlusOutlined, SendOutlined, WhatsAppOutlined } from '@ant-design/icons'
+import { DownOutlined, MailOutlined, MessageOutlined, PlusOutlined, SendOutlined, WhatsAppOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router'
@@ -18,7 +18,7 @@ interface Tile {
   key: string
   to: string
   name: string
-  kind: 'widget' | 'telegram' | 'whatsapp'
+  kind: 'widget' | 'telegram' | 'whatsapp' | 'email'
   count: number
   enabled: boolean
   hint: string
@@ -34,6 +34,7 @@ export function ChannelsPage() {
   const widgets = useQuery({ queryKey: ['widgets'], queryFn: settingsApi.widgets })
   const bots = useQuery({ queryKey: ['telegramBots'], queryFn: settingsApi.telegramBots })
   const whatsApp = useQuery({ queryKey: ['whatsAppChannels'], queryFn: settingsApi.whatsAppChannels })
+  const email = useQuery({ queryKey: ['emailChannels'], queryFn: settingsApi.emailChannels })
   const sites = useQuery({ queryKey: ['sites'], queryFn: settingsApi.sites })
   const counts = useQuery({ queryKey: ['channelCounts'], queryFn: settingsApi.channelCounts, refetchInterval: 60_000 })
   const noSites = sites.data?.length === 0
@@ -74,13 +75,26 @@ export function ChannelsPage() {
         .filter(Boolean)
         .join(' · '),
     })),
+    // Тикетов из почты пока нет: письма начнут приходить со следующим шагом.
+    ...(email.data ?? []).map((c) => ({
+      key: `e-${c.id}`,
+      to: `/channels/email/${c.id}`,
+      name: c.name,
+      kind: 'email' as const,
+      count: 0,
+      enabled: c.isEnabled,
+      hint: [c.imap.email, `${t('client.site')}: ${c.siteCode}`, c.lastCheckOk === false ? t('email.checkFailedShort') : null, c.isEnabled ? null : t('telegram.disabled')]
+        .filter(Boolean)
+        .join(' · '),
+    })),
   ]
-  const tileIcon = { widget: <ChatBubbles />, telegram: <SendOutlined />, whatsapp: <WhatsAppOutlined /> }
-  const tileType = { widget: t('channels.widget'), telegram: 'Telegram', whatsapp: 'WhatsApp' }
+  const tileIcon = { widget: <ChatBubbles />, telegram: <SendOutlined />, whatsapp: <WhatsAppOutlined />, email: <MailOutlined /> }
+  const tileType = { widget: t('channels.widget'), telegram: 'Telegram', whatsapp: 'WhatsApp', email: t('channels.email') }
   const newChannel: Record<string, string> = {
     widget: '/channels/widgets/new',
     telegram: '/channels/telegram/new',
     whatsapp: '/channels/whatsapp/new',
+    email: '/channels/email/new',
   }
 
   return (
@@ -94,6 +108,7 @@ export function ChannelsPage() {
               { key: 'widget', icon: <MessageOutlined />, label: t('channels.widget') },
               { key: 'telegram', icon: <SendOutlined />, label: t('channels.telegram') },
               { key: 'whatsapp', icon: <WhatsAppOutlined />, label: 'WhatsApp' },
+              { key: 'email', icon: <MailOutlined />, label: t('channels.email') },
             ],
             onClick: ({ key }) => navigate(newChannel[key]),
           }}
@@ -111,7 +126,7 @@ export function ChannelsPage() {
           </Typography.Text>
         </Card>
       )}
-      {widgets.isLoading || bots.isLoading || whatsApp.isLoading ? (
+      {widgets.isLoading || bots.isLoading || whatsApp.isLoading || email.isLoading ? (
         <Spin style={{ margin: 48 }} />
       ) : tiles.length === 0 ? (
         !noSites && (

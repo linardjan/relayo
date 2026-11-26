@@ -655,6 +655,14 @@ body,
   background: #1a8f56;
 }
 
+.channel-tile.email {
+  background: #4a78c9;
+}
+
+.channel-tile.email:hover {
+  background: #3e68b3;
+}
+
 .channel-tile.disabled {
   background: #9aa3ad;
 }
@@ -685,8 +693,9 @@ body,
   pointer-events: none;
 }
 
-/* Статус подключения LDAP */
+/* Статус подключения LDAP и почты */
 .status-box {
+  white-space: pre-line;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1086,4 +1095,38 @@ body,
 
 .ticket-page-url {
   word-break: break-all;
+}
+
+/* Почтовый канал: входящее и исходящее соединения рядом, как в Usedesk */
+.mail-connections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.mail-connections .ant-card-head {
+  background: #fafafa;
+}
+
+.mail-connections .ant-collapse-header {
+  padding-left: 150px !important;
+}
+
+@media (max-width: 1200px) {
+  .mail-connections {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Импорт из Usedesk: пометки и пропущенные записи списком без отступов */
+.usedesk-notes,
+.usedesk-skipped {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.usedesk-notes {
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 12px;
 }

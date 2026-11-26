@@ -95,6 +95,7 @@ export const menu: MenuNode[] = [
       { key: '/settings/sla', label: 'nav.sla' },
       { key: '/settings/fields', label: 'nav.fields' },
       { key: '/settings/ldap', label: 'nav.ldap', ready: true },
+      { key: '/settings/usedesk', label: 'nav.usedeskImport', ready: true },
       { key: '/settings/blocks', label: 'nav.blocks' },
       { key: '/settings/security', label: 'nav.security' },
     ],

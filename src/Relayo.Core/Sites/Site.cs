@@ -172,6 +172,12 @@ public sealed class Widget
 
     public string DefaultLocale { get; private set; } = "en";
 
+    /// <summary>id канала Usedesk (company_email_channels.id), из которого перенесён канал: повторный импорт его не дублирует,
+    /// перенесённая история находит по нему канал.</summary>
+    public int? UsedeskChannelId { get; private set; }
+
+    public void LinkUsedeskChannel(int channelId) => UsedeskChannelId = channelId;
+
     /// <summary>Какого Telegram-бота открывает кнопка «Continue in Telegram». Пусто — кнопки нет.</summary>
     public Guid? TelegramBotId { get; private set; }
 

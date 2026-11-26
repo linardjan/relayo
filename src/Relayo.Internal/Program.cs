@@ -97,6 +97,10 @@ if (settings.WhatsAppGateway is { } whatsAppGateway)
     });
 }
 builder.Services.AddSingleton<WhatsAppGateway>();
+builder.Services.AddScoped<Relayo.Internal.Channels.Email.EmailChannelChecker>();
+// Временный импорт из Usedesk (MySQL): подключение задаётся в админке.
+builder.Services.AddSingleton<Relayo.Internal.Usedesk.UsedeskSource>();
+builder.Services.AddScoped<Relayo.Internal.Usedesk.UsedeskImportService>();
 builder.Services.AddScoped<WhatsAppOutbox>();
 builder.Services.AddScoped<WhatsAppMessageProcessor>();
 builder.Services.AddHealthChecks()

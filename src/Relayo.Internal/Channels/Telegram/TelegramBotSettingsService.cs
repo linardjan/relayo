@@ -68,6 +68,29 @@ public sealed class TelegramBotSettingsService(
         return (await ListAsync(ct)).Single(b => b.Id == bot.Id);
     }
 
+    /// <summary>
+    /// Бот из Usedesk. Создаётся выключенным и <b>не трогает вебхук</b>: у бота он один, и пока бот работает в Usedesk,
+    /// забрать его нельзя. В день переключения администратор включает бота — вебхук переходит на Relayo.
+    /// Telegram только спрашивается, чей это токен (getMe).
+    /// </summary>
+    public async Task<TelegramBotView> ImportDisabledAsync(string name, Guid siteId, string token, int usedeskChannelId,
+        CancellationToken ct)
+    {
+        token = token.Trim();
+        await EnsureSiteAsync(siteId, ct);
+        var me = await GetMeAsync(token, ct);
+        if (await db.TelegramBots.AnyAsync(b => b.TelegramId == me.Id, ct))
+            throw new DomainException(ErrorCodes.BotTaken, $"Bot @{me.Username} is already connected");
+
+        var bot = new TelegramBot(ValidName(name, me), me.Id, me.Username!, siteId, protector.Protect(token),
+            protector.Protect(NewWebhookSecret()), time.GetUtcNow());
+        bot.Update(bot.Name, siteId, enabled: false);
+        bot.LinkUsedeskChannel(usedeskChannelId);
+        db.TelegramBots.Add(bot);
+        await db.SaveChangesAsync(ct);
+        return (await ListAsync(ct)).Single(b => b.Id == bot.Id);
+    }
+
     public async Task<TelegramBotView> UpdateAsync(Guid botId, TelegramBotInput input, CancellationToken ct)
     {
         var bot = await db.TelegramBots.SingleOrDefaultAsync(b => b.Id == botId, ct)

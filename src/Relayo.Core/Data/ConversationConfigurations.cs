@@ -7,6 +7,7 @@ using Relayo.Core.Clients;
 using Relayo.Core.Conversations;
 using Relayo.Core.Files;
 using Relayo.Core.Sites;
+using Relayo.Core.Usedesk;
 
 namespace Relayo.Core.Data;
 
@@ -54,6 +55,7 @@ internal sealed class WidgetConfiguration : IEntityTypeConfiguration<Widget>
         b.Property(w => w.WhatsAppChannelId).HasColumnName("whatsapp_channel_id");
         b.HasOne<WhatsAppChannel>().WithMany().HasForeignKey(w => w.WhatsAppChannelId).OnDelete(DeleteBehavior.SetNull);
         b.Property(w => w.PublicKey).HasMaxLength(Widget.PublicKeyLength).IsCaseSensitive();
+        b.HasIndex(w => w.UsedeskChannelId).IsUnique().HasFilter("usedesk_channel_id IS NOT NULL");
         // Внешний вид и поведение — один документ: читается и меняется только вместе с виджетом.
         b.Property(w => w.Options)
             .HasColumnType("nvarchar(max)")
@@ -197,6 +199,7 @@ internal sealed class TelegramBotConfiguration : IEntityTypeConfiguration<Telegr
         b.Property(t => t.Name).HasMaxLength(TelegramBot.NameMaxLength);
         b.Property(t => t.Username).HasMaxLength(TelegramBot.UsernameMaxLength);
         b.HasIndex(t => t.TelegramId).IsUnique();
+        b.HasIndex(t => t.UsedeskChannelId).IsUnique().HasFilter("usedesk_channel_id IS NOT NULL");
         b.HasOne<Site>().WithMany().HasForeignKey(t => t.SiteId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -214,7 +217,37 @@ internal sealed class WhatsAppChannelConfiguration : IEntityTypeConfiguration<Wh
         // Не уникален: один номер можно подключить по QR, пока где-то остался канал «только ссылка» с ним же.
         b.HasIndex(c => c.PhoneNumber);
         b.Ignore(c => c.CanRedirect);
+        b.HasIndex(c => c.UsedeskChannelId).IsUnique().HasFilter("usedesk_channel_id IS NOT NULL");
         b.HasOne<Site>().WithMany().HasForeignKey(c => c.SiteId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class EmailChannelConfiguration : IEntityTypeConfiguration<EmailChannel>
+{
+    public void Configure(EntityTypeBuilder<EmailChannel> b)
+    {
+        b.ToTable("email_channels");
+        b.HasKey(c => c.Id);
+        b.Property(c => c.Name).HasMaxLength(EmailChannel.NameMaxLength);
+        b.Property(c => c.Quoting).HasConversion<string>().HasMaxLength(16);
+        b.Property(c => c.LastCheckMessage).HasMaxLength(EmailChannel.CheckMessageMaxLength);
+        b.HasIndex(c => c.UsedeskChannelId).IsUnique().HasFilter("usedesk_channel_id IS NOT NULL");
+        b.ComplexProperty(c => c.Imap, s => MailServer(s, "imap"));
+        b.ComplexProperty(c => c.Smtp, s => MailServer(s, "smtp"));
+        b.HasOne<Site>().WithMany().HasForeignKey(c => c.SiteId).OnDelete(DeleteBehavior.Restrict);
+    }
+
+    /// <summary>Подключение — столбцы imap_* / smtp_* в той же таблице, как в Usedesk (company_email_channels).</summary>
+    private static void MailServer(ComplexPropertyBuilder<MailServer> s, string prefix)
+    {
+        s.Property(m => m.Email).HasColumnName($"{prefix}_email").HasMaxLength(Core.Channels.MailServer.EmailMaxLength);
+        s.Property(m => m.Host).HasColumnName($"{prefix}_host").HasMaxLength(Core.Channels.MailServer.HostMaxLength);
+        s.Property(m => m.Port).HasColumnName($"{prefix}_port");
+        s.Property(m => m.Security).HasColumnName($"{prefix}_security").HasConversion<string>().HasMaxLength(16);
+        s.Property(m => m.Username).HasColumnName($"{prefix}_username").HasMaxLength(Core.Channels.MailServer.UsernameMaxLength);
+        s.Property(m => m.ProtectedPassword).HasColumnName($"{prefix}_protected_password")
+            .HasMaxLength(Core.Channels.MailServer.ProtectedPasswordMaxLength);
+        s.Ignore(m => m.Login);
     }
 }
 
@@ -288,5 +321,21 @@ internal sealed class RuleExecutionConfiguration : IEntityTypeConfiguration<Rule
         b.HasIndex(e => e.CreatedAt);
         // Лимит автоответов считается по тикету за последний час.
         b.HasIndex(e => new { e.TicketId, e.CreatedAt });
+    }
+}
+
+internal sealed class UsedeskConnectionConfiguration : IEntityTypeConfiguration<UsedeskConnection>
+{
+    public void Configure(EntityTypeBuilder<UsedeskConnection> b)
+    {
+        b.ToTable("usedesk_connection");
+        b.HasKey(c => c.Id);
+        b.Property(c => c.Id).ValueGeneratedNever();
+        b.Property(c => c.Host).HasMaxLength(UsedeskConnection.HostMaxLength);
+        b.Property(c => c.Database).HasMaxLength(UsedeskConnection.DatabaseMaxLength);
+        b.Property(c => c.Username).HasMaxLength(UsedeskConnection.UsernameMaxLength);
+        b.Property(c => c.ProtectedPassword).HasMaxLength(1024);
+        b.Property(c => c.LastCheckMessage).HasMaxLength(UsedeskConnection.CheckMessageMaxLength);
+        b.Ignore(c => c.IsConfigured);
     }
 }
