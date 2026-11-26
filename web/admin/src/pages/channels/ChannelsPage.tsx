@@ -1,5 +1,5 @@
 import { Button, Card, Dropdown, Empty, Spin, Typography } from 'antd'
-import { DownOutlined, MessageOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons'
+import { DownOutlined, MailOutlined, MessageOutlined, PlusOutlined, SendOutlined, WhatsAppOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router'
@@ -18,7 +18,7 @@ interface Tile {
   key: string
   to: string
   name: string
-  kind: 'widget' | 'telegram'
+  kind: 'widget' | 'telegram' | 'whatsapp' | 'email'
   count: number
   enabled: boolean
   hint: string
@@ -33,6 +33,8 @@ export function ChannelsPage() {
   const navigate = useNavigate()
   const widgets = useQuery({ queryKey: ['widgets'], queryFn: settingsApi.widgets })
   const bots = useQuery({ queryKey: ['telegramBots'], queryFn: settingsApi.telegramBots })
+  const whatsApp = useQuery({ queryKey: ['whatsAppChannels'], queryFn: settingsApi.whatsAppChannels })
+  const email = useQuery({ queryKey: ['emailChannels'], queryFn: settingsApi.emailChannels })
   const sites = useQuery({ queryKey: ['sites'], queryFn: settingsApi.sites })
   const counts = useQuery({ queryKey: ['channelCounts'], queryFn: settingsApi.channelCounts, refetchInterval: 60_000 })
   const noSites = sites.data?.length === 0
@@ -57,7 +59,43 @@ export function ChannelsPage() {
       enabled: b.isEnabled,
       hint: `@${b.username} · ${t('client.site')}: ${b.siteCode}${b.isEnabled ? '' : ` · ${t('telegram.disabled')}`}`,
     })),
+    ...(whatsApp.data ?? []).map((c) => ({
+      key: `wa-${c.id}`,
+      to: `/channels/whatsapp/${c.id}`,
+      name: c.name,
+      kind: 'whatsapp' as const,
+      count: counts.data?.whatsAppChannels?.[c.id] ?? 0,
+      enabled: c.isEnabled,
+      hint: [
+        c.phoneNumber ? `+${c.phoneNumber}` : null,
+        `${t('client.site')}: ${c.siteCode}`,
+        c.mode === 'Gateway' ? (c.isConnected ? t('whatsapp.connected') : t('whatsapp.notConnected')) : t('whatsapp.modeLinkOnly'),
+        c.isEnabled ? null : t('telegram.disabled'),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+    // Тикетов из почты пока нет: письма начнут приходить со следующим шагом.
+    ...(email.data ?? []).map((c) => ({
+      key: `e-${c.id}`,
+      to: `/channels/email/${c.id}`,
+      name: c.name,
+      kind: 'email' as const,
+      count: 0,
+      enabled: c.isEnabled,
+      hint: [c.imap.email, `${t('client.site')}: ${c.siteCode}`, c.lastCheckOk === false ? t('email.checkFailedShort') : null, c.isEnabled ? null : t('telegram.disabled')]
+        .filter(Boolean)
+        .join(' · '),
+    })),
   ]
+  const tileIcon = { widget: <ChatBubbles />, telegram: <SendOutlined />, whatsapp: <WhatsAppOutlined />, email: <MailOutlined /> }
+  const tileType = { widget: t('channels.widget'), telegram: 'Telegram', whatsapp: 'WhatsApp', email: t('channels.email') }
+  const newChannel: Record<string, string> = {
+    widget: '/channels/widgets/new',
+    telegram: '/channels/telegram/new',
+    whatsapp: '/channels/whatsapp/new',
+    email: '/channels/email/new',
+  }
 
   return (
     <Page
@@ -69,8 +107,10 @@ export function ChannelsPage() {
             items: [
               { key: 'widget', icon: <MessageOutlined />, label: t('channels.widget') },
               { key: 'telegram', icon: <SendOutlined />, label: t('channels.telegram') },
+              { key: 'whatsapp', icon: <WhatsAppOutlined />, label: 'WhatsApp' },
+              { key: 'email', icon: <MailOutlined />, label: t('channels.email') },
             ],
-            onClick: ({ key }) => navigate(key === 'widget' ? '/channels/widgets/new' : '/channels/telegram/new'),
+            onClick: ({ key }) => navigate(newChannel[key]),
           }}
         >
           <Button type="primary" icon={<PlusOutlined />}>
@@ -86,7 +126,7 @@ export function ChannelsPage() {
           </Typography.Text>
         </Card>
       )}
-      {widgets.isLoading || bots.isLoading ? (
+      {widgets.isLoading || bots.isLoading || whatsApp.isLoading || email.isLoading ? (
         <Spin style={{ margin: 48 }} />
       ) : tiles.length === 0 ? (
         !noSites && (
@@ -98,12 +138,12 @@ export function ChannelsPage() {
         <div className="channel-tiles">
           {tiles.map((tile) => (
             <Link key={tile.key} to={tile.to} title={tile.hint} className={`channel-tile ${tile.kind}${tile.enabled ? '' : ' disabled'}`}>
-              <span className="channel-tile-icon">{tile.kind === 'widget' ? <ChatBubbles /> : <SendOutlined />}</span>
+              <span className="channel-tile-icon">{tileIcon[tile.kind]}</span>
               <span className="channel-tile-count" title={t('channels.openTickets')}>
                 {tile.count}
               </span>
               <span className="channel-tile-name">
-                {tile.name} ({tile.kind === 'widget' ? t('channels.widget') : 'Telegram'})
+                {tile.name} ({tileType[tile.kind]})
               </span>
               {tile.unpublished && <span className="channel-tile-flag">{t('channels.unpublished')}</span>}
             </Link>

@@ -9,13 +9,16 @@
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" />
     <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="MySqlConnector" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="WolverineFx" />
     <PackageReference Include="WolverineFx.RabbitMQ" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
-    <PackageReference Include="WolverineFx.Postgresql" />
+    <PackageReference Include="WolverineFx.SqlServer" />
     <PackageReference Include="WolverineFx.EntityFrameworkCore" />
   </ItemGroup>
   <ItemGroup>

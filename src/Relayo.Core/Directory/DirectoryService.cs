@@ -128,7 +128,7 @@ public sealed partial class DirectoryService(
 
         // Две синхронизации одновременно (кнопка и расписание, два экземпляра сервиса) не мешают друг другу.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended('relayo:directory-sync', 0))", ct);
+        await db.LockAsync("directory-sync", ct);
 
         try
         {

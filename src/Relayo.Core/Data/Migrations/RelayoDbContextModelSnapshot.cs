@@ -3,8 +3,8 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Relayo.Core.Data;
 
 #nullable disable
@@ -19,41 +19,41 @@ namespace Relayo.Core.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.15")
-                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+                .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
             modelBuilder.Entity("Relayo.Core.Auth.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("expires_at");
 
                     b.Property<Guid?>("ReplacedById")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("replaced_by_id");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("revoked_at");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("nvarchar(64)")
                         .HasColumnName("token_hash");
 
                     b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("user_id");
 
                     b.HasKey("Id")
@@ -73,55 +73,55 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Definition")
                         .IsRequired()
-                        .HasColumnType("jsonb")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("definition");
 
                     b.Property<string>("Description")
                         .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)")
+                        .HasColumnType("nvarchar(4000)")
                         .HasColumnName("description");
 
                     b.Property<bool>("IgnoreHtml")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("ignore_html");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_enabled");
 
                     b.Property<bool>("IsManual")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_manual");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
 
                     b.Property<int>("Position")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("position");
 
                     b.Property<bool>("StopProcessing")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("stop_processing");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
 
                     b.Property<bool>("UseWordForms")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("use_word_forms");
 
                     b.HasKey("Id")
@@ -137,35 +137,35 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<bool>("Applied")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("applied");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Details")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("nvarchar(2000)")
                         .HasColumnName("details");
 
                     b.Property<Guid>("RuleId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("rule_id");
 
                     b.Property<string>("RuleName")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("rule_name");
 
                     b.Property<Guid>("TicketId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("ticket_id");
 
                     b.Property<long>("TicketNumber")
@@ -175,7 +175,7 @@ namespace Relayo.Core.Data.Migrations
                     b.Property<string>("Trigger")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("nvarchar(64)")
                         .HasColumnName("trigger");
 
                     b.HasKey("Id")
@@ -194,31 +194,31 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<Guid>("RuleId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("rule_id");
 
                     b.Property<string>("Summary")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
+                        .HasColumnType("nvarchar(1000)")
                         .HasColumnName("summary");
 
                     b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("user_id");
 
                     b.Property<string>("UserName")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("user_name");
 
                     b.HasKey("Id")
@@ -237,33 +237,33 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<Guid>("BotId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("bot_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("expires_at");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("nvarchar(64)")
                         .HasColumnName("token_hash");
 
                     b.Property<DateTimeOffset?>("UsedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("used_at");
 
                     b.Property<Guid>("VisitorIdentityId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("visitor_identity_id");
 
                     b.HasKey("Id")
@@ -285,49 +285,195 @@ namespace Relayo.Core.Data.Migrations
                     b.ToTable("channel_link_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Relayo.Core.Channels.EmailChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("ForwardCreatesTicket")
+                        .HasColumnType("bit")
+                        .HasColumnName("forward_creates_ticket");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<DateTimeOffset?>("LastCheckAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_check_at");
+
+                    b.Property<string>("LastCheckMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("last_check_message");
+
+                    b.Property<bool?>("LastCheckOk")
+                        .HasColumnType("bit")
+                        .HasColumnName("last_check_ok");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Quoting")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("quoting");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("site_id");
+
+                    b.Property<int?>("UsedeskChannelId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_channel_id");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Imap", "Relayo.Core.Channels.EmailChannel.Imap#MailServer", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("Email")
+                                .IsRequired()
+                                .HasMaxLength(320)
+                                .HasColumnType("nvarchar(320)")
+                                .HasColumnName("imap_email");
+
+                            b1.Property<string>("Host")
+                                .IsRequired()
+                                .HasMaxLength(255)
+                                .HasColumnType("nvarchar(255)")
+                                .HasColumnName("imap_host");
+
+                            b1.Property<int>("Port")
+                                .HasColumnType("int")
+                                .HasColumnName("imap_port");
+
+                            b1.Property<string>("ProtectedPassword")
+                                .IsRequired()
+                                .HasMaxLength(1024)
+                                .HasColumnType("nvarchar(1024)")
+                                .HasColumnName("imap_protected_password");
+
+                            b1.Property<string>("Security")
+                                .IsRequired()
+                                .HasMaxLength(16)
+                                .HasColumnType("nvarchar(16)")
+                                .HasColumnName("imap_security");
+
+                            b1.Property<string>("Username")
+                                .HasMaxLength(320)
+                                .HasColumnType("nvarchar(320)")
+                                .HasColumnName("imap_username");
+                        });
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Smtp", "Relayo.Core.Channels.EmailChannel.Smtp#MailServer", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("Email")
+                                .IsRequired()
+                                .HasMaxLength(320)
+                                .HasColumnType("nvarchar(320)")
+                                .HasColumnName("smtp_email");
+
+                            b1.Property<string>("Host")
+                                .IsRequired()
+                                .HasMaxLength(255)
+                                .HasColumnType("nvarchar(255)")
+                                .HasColumnName("smtp_host");
+
+                            b1.Property<int>("Port")
+                                .HasColumnType("int")
+                                .HasColumnName("smtp_port");
+
+                            b1.Property<string>("ProtectedPassword")
+                                .IsRequired()
+                                .HasMaxLength(1024)
+                                .HasColumnType("nvarchar(1024)")
+                                .HasColumnName("smtp_protected_password");
+
+                            b1.Property<string>("Security")
+                                .IsRequired()
+                                .HasMaxLength(16)
+                                .HasColumnType("nvarchar(16)")
+                                .HasColumnName("smtp_security");
+
+                            b1.Property<string>("Username")
+                                .HasMaxLength(320)
+                                .HasColumnType("nvarchar(320)")
+                                .HasColumnName("smtp_username");
+                        });
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_channels");
+
+                    b.HasIndex("SiteId")
+                        .HasDatabaseName("ix_email_channels_site_id");
+
+                    b.HasIndex("UsedeskChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_channels_usedesk_channel_id")
+                        .HasFilter("usedesk_channel_id IS NOT NULL");
+
+                    b.ToTable("email_channels", (string)null);
+                });
+
             modelBuilder.Entity("Relayo.Core.Channels.TelegramBot", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_enabled");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
 
                     b.Property<string>("ProtectedToken")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("protected_token");
 
                     b.Property<string>("ProtectedWebhookSecret")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("protected_webhook_secret");
 
                     b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
 
                     b.Property<long>("TelegramId")
                         .HasColumnType("bigint")
                         .HasColumnName("telegram_id");
 
+                    b.Property<int?>("UsedeskChannelId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_channel_id");
+
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("nvarchar(64)")
                         .HasColumnName("username");
 
                     b.HasKey("Id")
@@ -340,45 +486,183 @@ namespace Relayo.Core.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_telegram_bots_telegram_id");
 
+                    b.HasIndex("UsedeskChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_telegram_bots_usedesk_channel_id")
+                        .HasFilter("usedesk_channel_id IS NOT NULL");
+
                     b.ToTable("telegram_bots", (string)null);
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccountName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("account_name");
+
+                    b.Property<DateTimeOffset?>("ConnectedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("connected_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsConnected")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_connected");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)")
+                        .HasColumnName("phone_number")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("site_id");
+
+                    b.Property<int?>("UsedeskChannelId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_channel_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_whatsapp_channels");
+
+                    b.HasIndex("PhoneNumber")
+                        .HasDatabaseName("ix_whatsapp_channels_phone_number");
+
+                    b.HasIndex("SiteId")
+                        .HasDatabaseName("ix_whatsapp_channels_site_id");
+
+                    b.HasIndex("UsedeskChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_whatsapp_channels_usedesk_channel_id")
+                        .HasFilter("usedesk_channel_id IS NOT NULL");
+
+                    b.ToTable("whatsapp_channels", (string)null);
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppLinkCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("code_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("VisitorIdentityId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("visitor_identity_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_whatsapp_link_codes");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_whatsapp_link_codes_channel_id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_whatsapp_link_codes_code_hash");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_whatsapp_link_codes_expires_at");
+
+                    b.HasIndex("VisitorIdentityId")
+                        .HasDatabaseName("ix_whatsapp_link_codes_visitor_identity_id");
+
+                    b.ToTable("whatsapp_link_codes", (string)null);
                 });
 
             modelBuilder.Entity("Relayo.Core.Clients.Client", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("DisplayName")
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("display_name");
 
                     b.Property<string>("ExternalClientId")
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("external_client_id");
+                        .HasColumnType("nvarchar(128)")
+                        .HasColumnName("external_client_id")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<bool>("IsVerified")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_verified");
 
                     b.Property<string>("Locale")
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("locale");
 
                     b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
+
+                    b.Property<long?>("UsedeskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("usedesk_id");
 
                     b.HasKey("Id")
                         .HasName("pk_clients");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_clients_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("SiteId", "ExternalClientId")
                         .IsUnique()
@@ -392,56 +676,57 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<Guid?>("ChannelId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("channel_id");
 
                     b.Property<Guid?>("ClientId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("client_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("DisplayName")
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("display_name");
 
                     b.Property<string>("ExternalId")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("external_id");
+                        .HasColumnType("nvarchar(128)")
+                        .HasColumnName("external_id")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<bool>("IsVerified")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_verified");
 
                     b.Property<DateTimeOffset>("LastSeenAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("last_seen_at");
 
                     b.Property<Guid?>("LinkedFromIdentityId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("linked_from_identity_id");
 
                     b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
 
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("type");
 
                     b.Property<Guid?>("WidgetId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("widget_id");
 
                     b.HasKey("Id")
@@ -464,34 +749,48 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<Guid>("ClientId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("client_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<bool>("IsVerified")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_verified");
 
                     b.Property<DateTimeOffset>("LastMessageAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("last_message_at");
 
+                    b.Property<string>("PageUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("page_url");
+
                     b.Property<Guid>("TicketId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("ticket_id");
+
+                    b.Property<long?>("UsedeskId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("usedesk_id");
 
                     b.HasKey("Id")
                         .HasName("pk_chats");
 
                     b.HasIndex("TicketId")
                         .HasDatabaseName("ix_chats_ticket_id");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_chats_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("ClientId", "LastMessageAt")
                         .HasDatabaseName("ix_chats_client_id_last_message_at");
@@ -501,51 +800,65 @@ namespace Relayo.Core.Data.Migrations
 
             modelBuilder.Entity("Relayo.Core.Conversations.Message", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
 
                     b.Property<string>("Author")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("author");
 
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("channel");
 
                     b.Property<Guid>("ChatId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("chat_id");
 
                     b.Property<string>("ClientMessageId")
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("client_message_id");
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("client_message_id")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<Guid?>("OperatorId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("operator_id");
 
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasMaxLength(10000)
-                        .HasColumnType("character varying(10000)")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("text");
 
+                    b.Property<int?>("UsedeskId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_id");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("visibility");
+
                     b.Property<Guid?>("VisitorIdentityId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("visitor_identity_id");
 
-                    b.HasKey("Id", "CreatedAt")
+                    b.HasKey("CreatedAt", "Id")
                         .HasName("pk_messages");
+
+                    b.HasIndex("Id")
+                        .HasDatabaseName("ix_messages_id");
 
                     b.HasIndex("OperatorId")
                         .HasDatabaseName("ix_messages_operator_id")
@@ -553,6 +866,10 @@ namespace Relayo.Core.Data.Migrations
 
                     b.HasIndex("ChatId", "CreatedAt")
                         .HasDatabaseName("ix_messages_chat_id_created_at");
+
+                    b.HasIndex("UsedeskId", "CreatedAt")
+                        .HasDatabaseName("ix_messages_usedesk_id_created_at")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.HasIndex("VisitorIdentityId", "CreatedAt")
                         .HasDatabaseName("ix_messages_visitor_identity_id_created_at");
@@ -564,43 +881,47 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<Guid?>("AssigneeId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("assignee_id");
 
                     b.Property<Guid>("ClientId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("client_id");
 
                     b.Property<DateTimeOffset?>("ClosedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("closed_at");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("group_id");
 
                     b.Property<string>("LastClientChannel")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("last_client_channel");
 
                     b.Property<DateTimeOffset>("LastMessageAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("last_message_at");
 
                     b.Property<string>("LastMessagePreview")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("last_message_preview");
 
                     b.Property<Guid?>("MergedIntoId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("merged_into_id");
 
                     b.Property<long>("Number")
@@ -608,20 +929,39 @@ namespace Relayo.Core.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("number");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Number"));
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Number"));
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("SourceChannel")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("source_channel");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("status");
 
+                    b.Property<string>("Subject")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("subject");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_tickets");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_tickets_group_id");
 
                     b.HasIndex("Number")
                         .IsUnique()
@@ -639,126 +979,126 @@ namespace Relayo.Core.Data.Migrations
             modelBuilder.Entity("Relayo.Core.Directory.LdapSettings", b =>
                 {
                     b.Property<int>("Id")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("id");
 
                     b.Property<string>("BindDn")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
+                        .HasColumnType("nvarchar(500)")
                         .HasColumnName("bind_dn");
 
                     b.Property<string>("DefaultRole")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasColumnType("nvarchar(32)")
                         .HasColumnName("default_role");
 
                     b.Property<string>("FullNameAttribute")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("full_name_attribute");
 
                     b.Property<string>("GuidAttribute")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("guid_attribute");
 
                     b.Property<string>("Host")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
+                        .HasColumnType("nvarchar(500)")
                         .HasColumnName("host");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_enabled");
 
                     b.Property<DateTimeOffset?>("LastCheckAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("last_check_at");
 
                     b.Property<string>("LastCheckMessage")
                         .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
+                        .HasColumnType("nvarchar(1000)")
                         .HasColumnName("last_check_message");
 
                     b.Property<bool?>("LastCheckOk")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("last_check_ok");
 
                     b.Property<DateTimeOffset?>("LastSyncAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("last_sync_at");
 
                     b.Property<string>("LastSyncMessage")
                         .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)")
+                        .HasColumnType("nvarchar(4000)")
                         .HasColumnName("last_sync_message");
 
                     b.Property<bool?>("LastSyncOk")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("last_sync_ok");
 
                     b.Property<string>("LoginAttribute")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("login_attribute");
 
                     b.Property<string>("MailAttribute")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("mail_attribute");
 
                     b.Property<string>("PhoneAttribute")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("phone_attribute");
 
                     b.Property<int>("Port")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("port");
 
                     b.Property<string>("PositionAttribute")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("position_attribute");
 
                     b.Property<string>("ProtectedBindPassword")
-                        .HasColumnType("text")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("protected_bind_password");
 
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasColumnType("nvarchar(32)")
                         .HasColumnName("provider");
 
                     b.Property<string>("Security")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("security");
 
                     b.Property<int>("SyncIntervalMinutes")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("sync_interval_minutes");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
 
                     b.Property<string>("UsersDn")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
+                        .HasColumnType("nvarchar(500)")
                         .HasColumnName("users_dn");
 
                     b.Property<bool>("VerifyCertificate")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("verify_certificate");
 
                     b.HasKey("Id")
@@ -770,32 +1110,85 @@ namespace Relayo.Core.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Relayo.Core.Files.Attachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChatId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("chat_id");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("file_name");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("message_id");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("storage_key")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attachments");
+
+                    b.HasIndex("MessageId")
+                        .HasDatabaseName("ix_attachments_message_id");
+
+                    b.HasIndex("ChatId", "CreatedAt")
+                        .HasDatabaseName("ix_attachments_chat_id_created_at");
+
+                    b.ToTable("attachments", (string)null);
+                });
+
             modelBuilder.Entity("Relayo.Core.Sites.Site", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
-                    b.PrimitiveCollection<List<string>>("AllowedOrigins")
+                    b.PrimitiveCollection<string>("AllowedOrigins")
                         .IsRequired()
-                        .HasColumnType("text[]")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("allowed_origins");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("nvarchar(64)")
                         .HasColumnName("code");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
 
                     b.HasKey("Id")
@@ -812,30 +1205,31 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("KeyId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("key_id");
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("key_id")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<string>("ProtectedSecret")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("protected_secret");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("revoked_at");
 
                     b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
 
                     b.HasKey("Id")
@@ -855,80 +1249,94 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<string>("AccentColor")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("accent_color");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("DefaultLocale")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("default_locale");
 
                     b.Property<string>("Greeting")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
+                        .HasColumnType("nvarchar(1000)")
                         .HasColumnName("greeting");
 
                     b.Property<string>("IdentificationMode")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasColumnType("nvarchar(32)")
                         .HasColumnName("identification_mode");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
+
+                    b.Property<string>("Options")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("options");
 
                     b.Property<string>("Position")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("position");
 
                     b.Property<string>("PublicKey")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("public_key");
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("public_key")
+                        .UseCollation("Latin1_General_100_BIN2");
 
                     b.Property<DateTimeOffset?>("PublishedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("published_at");
 
                     b.Property<int?>("PublishedVersion")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("published_version");
 
                     b.Property<Guid>("SiteId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("site_id");
 
                     b.Property<Guid?>("TelegramBotId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("telegram_bot_id");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("title");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
+
+                    b.Property<int?>("UsedeskChannelId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_channel_id");
+
+                    b.Property<Guid?>("WhatsAppChannelId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("whatsapp_channel_id");
 
                     b.HasKey("Id")
                         .HasName("pk_widgets");
@@ -943,6 +1351,14 @@ namespace Relayo.Core.Data.Migrations
                     b.HasIndex("TelegramBotId")
                         .HasDatabaseName("ix_widgets_telegram_bot_id");
 
+                    b.HasIndex("UsedeskChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_widgets_usedesk_channel_id")
+                        .HasFilter("usedesk_channel_id IS NOT NULL");
+
+                    b.HasIndex("WhatsAppChannelId")
+                        .HasDatabaseName("ix_widgets_whatsapp_channel_id");
+
                     b.ToTable("widgets", (string)null);
                 });
 
@@ -950,35 +1366,35 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<string>("Note")
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("note");
 
                     b.Property<DateTimeOffset>("PublishedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("published_at");
 
                     b.Property<string>("PublishedBy")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("published_by");
 
                     b.Property<string>("SnapshotJson")
                         .IsRequired()
-                        .HasColumnType("jsonb")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("snapshot_json");
 
                     b.Property<int>("Version")
-                        .HasColumnType("integer")
+                        .HasColumnType("int")
                         .HasColumnName("version");
 
                     b.Property<Guid>("WidgetId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("widget_id");
 
                     b.HasKey("Id")
@@ -991,21 +1407,81 @@ namespace Relayo.Core.Data.Migrations
                     b.ToTable("widget_versions", (string)null);
                 });
 
+            modelBuilder.Entity("Relayo.Core.Usedesk.UsedeskConnection", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int")
+                        .HasColumnName("id");
+
+                    b.Property<int>("CompanyId")
+                        .HasColumnType("int")
+                        .HasColumnName("company_id");
+
+                    b.Property<string>("Database")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("database");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("host");
+
+                    b.Property<DateTimeOffset?>("LastCheckAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_check_at");
+
+                    b.Property<string>("LastCheckMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("last_check_message");
+
+                    b.Property<bool?>("LastCheckOk")
+                        .HasColumnType("bit")
+                        .HasColumnName("last_check_ok");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("int")
+                        .HasColumnName("port");
+
+                    b.Property<string>("ProtectedPassword")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)")
+                        .HasColumnName("protected_password");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)")
+                        .HasColumnName("username");
+
+                    b.HasKey("Id")
+                        .HasName("pk_usedesk_connection");
+
+                    b.ToTable("usedesk_connection", (string)null);
+                });
+
             modelBuilder.Entity("Relayo.Core.Users.AgentGroup", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("name");
 
                     b.HasKey("Id")
@@ -1022,106 +1498,111 @@ namespace Relayo.Core.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
                     b.Property<Guid?>("AdObjectGuid")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("ad_object_guid");
 
                     b.Property<string>("Alias")
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("nvarchar(100)")
                         .HasColumnName("alias");
 
                     b.Property<bool>("BlockedByDirectory")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("blocked_by_directory");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
 
                     b.Property<Guid?>("DefaultGroupId")
-                        .HasColumnType("uuid")
+                        .HasColumnType("uniqueidentifier")
                         .HasColumnName("default_group_id");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("email");
 
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("full_name");
 
-                    b.PrimitiveCollection<List<Guid>>("GroupIds")
+                    b.PrimitiveCollection<string>("GroupIds")
                         .IsRequired()
-                        .HasColumnType("uuid[]")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("group_ids");
 
                     b.Property<bool>("IsBlocked")
-                        .HasColumnType("boolean")
+                        .HasColumnType("bit")
                         .HasColumnName("is_blocked");
 
                     b.Property<string>("Locale")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("locale");
 
                     b.Property<string>("Login")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("login");
 
                     b.Property<string>("LoginNormalized")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
+                        .HasColumnType("nvarchar(256)")
                         .HasColumnName("login_normalized");
 
                     b.Property<string>("PasswordHash")
-                        .HasColumnType("text")
+                        .HasColumnType("nvarchar(max)")
                         .HasColumnName("password_hash");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
+                        .HasColumnType("nvarchar(50)")
                         .HasColumnName("phone");
 
                     b.Property<string>("Position")
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
+                        .HasColumnType("nvarchar(200)")
                         .HasColumnName("position");
 
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasColumnType("nvarchar(32)")
                         .HasColumnName("role");
 
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
+                        .HasColumnType("nvarchar(32)")
                         .HasColumnName("source");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
+                        .HasColumnType("nvarchar(16)")
                         .HasColumnName("status");
+
+                    b.Property<int?>("UsedeskId")
+                        .HasColumnType("int")
+                        .HasColumnName("usedesk_id");
 
                     b.HasKey("Id")
                         .HasName("pk_users");
 
                     b.HasIndex("AdObjectGuid")
                         .IsUnique()
-                        .HasDatabaseName("ix_users_ad_object_guid");
+                        .HasDatabaseName("ix_users_ad_object_guid")
+                        .HasFilter("[ad_object_guid] IS NOT NULL");
 
                     b.HasIndex("DefaultGroupId")
                         .HasDatabaseName("ix_users_default_group_id");
@@ -1129,6 +1610,11 @@ namespace Relayo.Core.Data.Migrations
                     b.HasIndex("LoginNormalized")
                         .IsUnique()
                         .HasDatabaseName("ix_users_login_normalized");
+
+                    b.HasIndex("UsedeskId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_users_usedesk_id")
+                        .HasFilter("usedesk_id IS NOT NULL");
 
                     b.ToTable("users", (string)null);
                 });
@@ -1178,6 +1664,16 @@ namespace Relayo.Core.Data.Migrations
                         .HasConstraintName("fk_channel_link_tokens_client_identities_visitor_identity_id");
                 });
 
+            modelBuilder.Entity("Relayo.Core.Channels.EmailChannel", b =>
+                {
+                    b.HasOne("Relayo.Core.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_email_channels_sites_site_id");
+                });
+
             modelBuilder.Entity("Relayo.Core.Channels.TelegramBot", b =>
                 {
                     b.HasOne("Relayo.Core.Sites.Site", null)
@@ -1186,6 +1682,33 @@ namespace Relayo.Core.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_telegram_bots_sites_site_id");
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppChannel", b =>
+                {
+                    b.HasOne("Relayo.Core.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("SiteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_channels_sites_site_id");
+                });
+
+            modelBuilder.Entity("Relayo.Core.Channels.WhatsAppLinkCode", b =>
+                {
+                    b.HasOne("Relayo.Core.Channels.WhatsAppChannel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_link_codes_whatsapp_channels_channel_id");
+
+                    b.HasOne("Relayo.Core.Clients.ClientIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("VisitorIdentityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_whatsapp_link_codes_client_identities_visitor_identity_id");
                 });
 
             modelBuilder.Entity("Relayo.Core.Clients.Client", b =>
@@ -1246,6 +1769,22 @@ namespace Relayo.Core.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tickets_clients_client_id");
+
+                    b.HasOne("Relayo.Core.Users.AgentGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_tickets_agent_groups_group_id");
+                });
+
+            modelBuilder.Entity("Relayo.Core.Files.Attachment", b =>
+                {
+                    b.HasOne("Relayo.Core.Conversations.Chat", null)
+                        .WithMany()
+                        .HasForeignKey("ChatId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_attachments_chats_chat_id");
                 });
 
             modelBuilder.Entity("Relayo.Core.Sites.SiteKey", b =>
@@ -1274,6 +1813,12 @@ namespace Relayo.Core.Data.Migrations
                         .HasForeignKey("TelegramBotId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_widgets_telegram_bots_telegram_bot_id");
+
+                    b.HasOne("Relayo.Core.Channels.WhatsAppChannel", null)
+                        .WithMany()
+                        .HasForeignKey("WhatsAppChannelId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_widgets_whatsapp_channels_whatsapp_channel_id");
 
                     b.Navigation("Site");
                 });

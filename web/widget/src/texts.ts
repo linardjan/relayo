@@ -11,9 +11,17 @@ const en = {
   loadFailed: 'Could not load the chat. Please try again later.',
   notConfigured: 'This messenger is not connected yet.',
   openTelegram: 'Continue in Telegram',
+  openWhatsApp: 'Continue in WhatsApp',
   emoji: 'Emoji',
   collapse: 'Hide chat buttons',
   expand: 'Show chat buttons',
+  attach: 'Attach a file',
+  removeFile: 'Remove',
+  dropFiles: 'Drop files to attach',
+  fileTooLarge: 'Files are too large: up to {mb} MB per message.',
+  fileRejected: 'This file could not be sent.',
+  typeNotAllowed: 'This file type is not supported.',
+  file: 'File',
 }
 
 export type Texts = typeof en

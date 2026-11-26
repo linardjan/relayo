@@ -61,7 +61,7 @@ internal static class DevSeed
         {
             widget = new Widget(id, siteId, name, mode, now);
             widget.Configure(name, mode, "Support", "Hi! How can we help you?", "#1677ff", WidgetPosition.Right, "en",
-                null, now);
+                null, null, WidgetOptions.Default, now);
             db.Widgets.Add(widget);
         }
         if (widget.PublicKey != key)

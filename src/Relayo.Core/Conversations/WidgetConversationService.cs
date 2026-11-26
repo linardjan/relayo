@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Relayo.Core.Clients;
 using Relayo.Core.Data;
+using Relayo.Core.Files;
 using Relayo.Core.Sites;
 
 namespace Relayo.Core.Conversations;
@@ -14,7 +15,8 @@ public sealed record MessageView(
     string? AuthorName,
     string Text,
     DateTimeOffset CreatedAt,
-    string? ClientMessageId);
+    string? ClientMessageId,
+    IReadOnlyList<AttachmentView>? Attachments = null);
 
 /// <summary>
 /// Кому из посетителей виджета доставить сообщение в реальном времени:
@@ -26,7 +28,11 @@ public sealed record PostedVisitorMessage(MessageView Message, Guid TicketId, bo
     bool Duplicate = false);
 
 /// <summary>Переписка со стороны посетителя виджета.</summary>
-public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenValidator clientTokens, TimeProvider time)
+public sealed class WidgetConversationService(
+    RelayoDbContext db,
+    ClientTokenValidator clientTokens,
+    AttachmentService attachments,
+    TimeProvider time)
 {
     /// <summary>За сколько дней посетитель видит историю (п. 3.5 ТЗ).</summary>
     public const int HistoryDays = 30;
@@ -109,31 +115,47 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
     }
 
     public async Task<PostedVisitorMessage> SendAsync(Widget widget, string visitorToken, string text,
-        string? clientMessageId, CancellationToken ct)
+        string? clientMessageId, IReadOnlyList<FileUpload> uploads, CancellationToken ct, string? pageUrl = null)
     {
         text = text.Trim();
-        if (text.Length is 0 or > Message.TextMaxLength)
+        if (text.Length > Message.TextMaxLength || (text.Length == 0 && uploads.Count == 0))
             throw new DomainException(ErrorCodes.InvalidInput, "Message is empty or too long");
         if (clientMessageId is { Length: > Message.ClientMessageIdMaxLength })
             throw new DomainException(ErrorCodes.InvalidInput, "clientMessageId is too long");
-
-        var now = time.GetUtcNow();
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (uploads.Count > 0 && !widget.Options.AllowAttachments)
+            throw new DomainException(ErrorCodes.AttachmentsDisabled, "Attachments are turned off for this widget");
 
         var visitor = await FindVisitorAsync(widget, visitorToken, ct)
                       ?? throw new DomainException(ErrorCodes.VisitorNotFound, "Visitor not found");
-        var posted = await PostAsync(visitor, Channel.Widget, text, clientMessageId, now, ct);
+
+        // Файлы загружаются в S3 до транзакции, чтобы не держать блокировку клиента на время загрузки.
+        // Повтор уже доставленного сообщения файлы заново не загружает.
+        IReadOnlyList<StoredFile> files = [];
+        if (uploads.Count > 0 && !await IsDuplicateAsync(visitor.Id, clientMessageId, ct))
+            files = await attachments.StoreAsync(uploads, ct);
+
+        var now = time.GetUtcNow();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var posted = await PostAsync(visitor, Channel.Widget, text, clientMessageId, now, ct, files, pageUrl);
         await tx.CommitAsync(ct);
         return posted;
     }
+
+    private Task<bool> IsDuplicateAsync(Guid identityId, string? clientMessageId, CancellationToken ct) =>
+        string.IsNullOrEmpty(clientMessageId)
+            ? Task.FromResult(false)
+            : db.Messages.AnyAsync(m => m.VisitorIdentityId == identityId && m.ClientMessageId == clientMessageId
+                                        && m.CreatedAt >= time.GetUtcNow().AddDays(-1), ct);
 
     /// <summary>
     /// Сообщение клиента из любого канала: находит или открывает тикет и выбирает чат (п. 3.2 ТЗ).
     /// Вызывается внутри открытой транзакции; у идентичности должен быть загружен Client.
     /// </summary>
     internal async Task<PostedVisitorMessage> PostAsync(ClientIdentity identity, Channel channel, string text,
-        string? clientMessageId, DateTimeOffset now, CancellationToken ct)
+        string? clientMessageId, DateTimeOffset now, CancellationToken ct, IReadOnlyList<StoredFile>? files = null,
+        string? pageUrl = null)
     {
+        files ??= [];
         if (identity.Client is null)
         {
             var anonymous = Client.CreateAnonymous(identity.SiteId, now);
@@ -154,7 +176,8 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
             if (duplicate is not null)
             {
                 var dupChat = await db.Chats.AsNoTracking().SingleAsync(c => c.Id == duplicate.ChatId, ct);
-                return new PostedVisitorMessage(ToView(duplicate, null), dupChat.TicketId, false,
+                var dupFiles = (await attachments.ForMessageAsync(duplicate.Id, ct)).Select(attachments.ToView).ToList();
+                return new PostedVisitorMessage(ToView(duplicate, null, dupFiles), dupChat.TicketId, false,
                     await GetRecipientsAsync(dupChat, ct), Duplicate: true);
             }
         }
@@ -175,15 +198,17 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
             chat = await ChooseChatAsync(ticket, identity, now, ct);
         }
 
+        chat.SetPageUrlIfEmpty(pageUrl);
         var message = Message.FromClient(chat, identity.Id, channel, text, clientMessageId, now);
         db.Messages.Add(message);
+        var views = attachments.Attach(message, files);
         chat.OnMessage(now);
-        ticket.OnClientMessage(text, channel, now);
+        ticket.OnClientMessage(AttachmentService.Preview(text, files), channel, now);
         identity.Touch(now);
 
         await db.SaveChangesAsync(ct);
 
-        return new PostedVisitorMessage(ToView(message, null), ticket.Id, ticketCreated,
+        return new PostedVisitorMessage(ToView(message, null, views), ticket.Id, ticketCreated,
             await GetRecipientsAsync(chat, ct));
     }
 
@@ -218,6 +243,7 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
         var rows = await (
                 from m in db.Messages.AsNoTracking()
                 where chatIds.Contains(m.ChatId) && m.CreatedAt >= since
+                      && m.Visibility == MessageVisibility.Public
                 join u in db.Users on m.OperatorId equals u.Id into operators
                 from u in operators.DefaultIfEmpty()
                 orderby m.CreatedAt descending
@@ -225,7 +251,10 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
             .Take(HistoryLimit)
             .ToListAsync(ct);
 
-        return rows.AsEnumerable().Reverse().Select(r => ToView(r.Message, r.Alias)).ToList();
+        var files = await attachments.ForChatsAsync(chatIds, since, ct);
+        return rows.AsEnumerable().Reverse()
+            .Select(r => ToView(r.Message, r.Alias, files.Contains(r.Message.Id) ? files[r.Message.Id].ToList() : null))
+            .ToList();
     }
 
     public async Task<WidgetRecipients> GetRecipientsAsync(Chat chat, CancellationToken ct)
@@ -238,10 +267,11 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
         return new WidgetRecipients(visitors, chat.IsVerified ? chat.ClientId : null);
     }
 
-    internal static MessageView ToView(Message message, string? operatorAlias) => new(
+    internal static MessageView ToView(Message message, string? operatorAlias,
+        IReadOnlyList<AttachmentView>? files = null) => new(
         message.Id, message.ChatId, message.Author,
         message.Author == MessageAuthor.Operator ? operatorAlias : null,
-        message.Text, message.CreatedAt, message.ClientMessageId);
+        message.Text, message.CreatedAt, message.ClientMessageId, files is { Count: > 0 } ? files : null);
 
     internal Task<ClientIdentity?> FindVisitorAsync(Widget widget, string token, CancellationToken ct)
     {
@@ -347,8 +377,7 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
             return existing;
 
         // Блокировка по (сайт, clientId): два одновременных запроса не создадут двух клиентов.
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({siteId + ":" + externalClientId}, 0))", ct);
+        await db.LockAsync("client:" + siteId + ":" + externalClientId, ct);
         existing = await db.Clients
             .SingleOrDefaultAsync(c => c.SiteId == siteId && c.ExternalClientId == externalClientId, ct);
         if (existing is not null)
@@ -424,7 +453,5 @@ public sealed class WidgetConversationService(RelayoDbContext db, ClientTokenVal
     }
 
     /// <summary>Сообщения одного клиента обрабатываются по очереди: иначе два первых сообщения создали бы два тикета.</summary>
-    internal Task LockClientAsync(Guid clientId, CancellationToken ct) =>
-        db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({clientId.ToString()}, 0))", ct);
+    internal Task LockClientAsync(Guid clientId, CancellationToken ct) => db.LockAsync("messages:" + clientId, ct);
 }

@@ -1,7 +1,7 @@
 // E2E-проверка перехода из виджета в Telegram. Обновления Telegram подделываются через webhook публичного сервиса.
 const fs = require('fs')
 const crypto = require('crypto')
-const { execFileSync } = require('child_process')
+const { sql, close } = require('./db.cjs')
 
 const ROOT = require('path').join(__dirname, '../..') + ''
 const env = Object.fromEntries(
@@ -20,8 +20,6 @@ const USER3 = 970_000_000 + run
 
 let failed = 0
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); if (!ok) failed++ }
-
-const sql = (q) => execFileSync('docker', ['exec', 'relayo-postgres-1', 'psql', '-U', env.POSTGRES_USER, '-d', env.POSTGRES_DB, '-At', '-F', '|', '-c', q], { encoding: 'utf8' }).trim()
 
 function unprotect(value) {
   const key = Buffer.from(env.SECRETS_ENCRYPTION_KEY, 'base64').subarray(0, 32)
@@ -56,7 +54,7 @@ const msg = (user, id, extra) => ({
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 ;(async () => {
-  const [botId, protectedSecret, username, protectedToken] = sql(`select id, protected_webhook_secret, username, protected_token from telegram_bots where is_enabled limit 1`).split('|')
+  const [botId, protectedSecret, username, protectedToken] = (await sql(`select top 1 id, protected_webhook_secret, username, protected_token from telegram_bots where is_enabled = 1`)).split('|')
   const botToken = unprotect(protectedToken)
   const secret = unprotect(protectedSecret)
 
@@ -90,18 +88,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
   // 5. /start <token>
   check('/start accepted', (await tg(botId, secret, msg(USER1, 10, { text: `/start ${startToken}` }))) === 200)
-  const identity = sql(`select i.id, i.linked_from_identity_id, i.display_name, c.display_name, i.client_id = v.client_id
+  const identity = (await sql(`select i.id, i.linked_from_identity_id, i.display_name, c.display_name,
+    cast(case when i.client_id = v.client_id then 1 else 0 end as bit)
     from client_identities i join client_identities v on v.id = i.linked_from_identity_id join clients c on c.id = i.client_id
-    where i.type = 'Telegram' and i.external_id = '${botId.replace(/-/g, '')}:${USER1}'`).split('|')
+    where i.type = 'Telegram' and i.external_id = '${botId.replace(/-/g, '')}:${USER1}'`)).split('|')
   check('telegram identity linked to visitor', identity.length === 5 && identity[4] === 't', identity.join(' | '))
   check('identity display name', identity[2] === `Ivan Testov (@ivan${USER1})`)
-  const system = sql(`select count(*) from messages where chat_id = '${widgetChat}' and author = 'System' and channel = 'Telegram'`)
+  const system = await sql(`select count(*) from messages where chat_id = '${widgetChat}' and author = 'System' and channel = 'Telegram'`)
   check('system message in the widget chat', system === '1', system)
 
   // 6. Сообщение из Telegram идёт в тот же чат; повтор не создаёт дубль
   check('telegram text accepted', (await tg(botId, secret, msg(USER1, 11, { text: `Hi from Telegram ${run}` }))) === 200)
   check('duplicate update accepted', (await tg(botId, secret, msg(USER1, 11, { text: `Hi from Telegram ${run}` }))) === 200)
-  const tgMessages = sql(`select chat_id, count(*) from messages where text = 'Hi from Telegram ${run}' group by chat_id`).split('|')
+  const tgMessages = (await sql(`select chat_id, count(*) from messages where text = 'Hi from Telegram ${run}' group by chat_id`)).split('|')
   check('telegram message continues the widget chat', tgMessages[0] === widgetChat, tgMessages.join(' | '))
   check('no duplicate', tgMessages[1] === '1')
 
@@ -112,7 +111,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
   // 8. Использованная ссылка не привязывает другого человека
   check('/start reused by another user', (await tg(botId, secret, msg(USER2, 20, { text: `/start ${startToken}` }))) === 200)
-  const stolen = sql(`select count(*) from client_identities where external_id = '${botId.replace(/-/g, '')}:${USER2}'`)
+  const stolen = await sql(`select count(*) from client_identities where external_id = '${botId.replace(/-/g, '')}:${USER2}'`)
   check('used link does not link another account', stolen === '0', stolen)
   // ...а повторный /start того же человека — не ошибка
   check('/start repeated by same user', (await tg(botId, secret, msg(USER1, 12, { text: `/start ${startToken}` }))) === 200)
@@ -121,7 +120,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const login = await fetch(`${ADMIN}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'admin', password: env.BOOTSTRAP_ADMIN_PASSWORD }) })
   const { accessToken } = await login.json()
   const auth = { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }
-  const ticketId = sql(`select ticket_id from chats where id = '${widgetChat}'`)
+  const ticketId = await sql(`select ticket_id from chats where id = '${widgetChat}'`)
   const ticket = await (await fetch(`${ADMIN}/api/tickets/${ticketId}`, { headers: auth })).json()
   const chat = ticket.chats.find((c) => c.id === widgetChat)
   check('admin sees reply channel Telegram', chat?.replyChannel === 'Telegram', chat?.replyChannel)
@@ -140,21 +139,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
   // 10. Человек пишет боту напрямую: новый анонимный клиент с именем из Telegram
   check('direct message accepted', (await tg(botId, secret, msg(USER3, 30, { text: `Direct ${run}` }))) === 200)
-  const direct = sql(`select c.display_name, c.external_client_id is null, t.number from client_identities i
+  const direct = (await sql(`select c.display_name, cast(case when c.external_client_id is null then 1 else 0 end as bit), t.number from client_identities i
     join clients c on c.id = i.client_id join tickets t on t.client_id = c.id
-    where i.external_id = '${botId.replace(/-/g, '')}:${USER3}'`).split('|')
+    where i.external_id = '${botId.replace(/-/g, '')}:${USER3}'`)).split('|')
   check('direct writer gets own anonymous client and ticket', direct[0] === `Ivan Testov (@ivan${USER3})` && direct[1] === 't', direct.join(' | '))
   const list = await (await fetch(`${ADMIN}/api/tickets`, { headers: auth })).json()
   check('ticket list shows telegram name as client label', list.some((t) => t.clientLabel === `Ivan Testov (@ivan${USER3})`))
 
   // 11. Фото вместо текста
   check('photo accepted', (await tg(botId, secret, msg(USER3, 31, { photo: [{ file_id: 'x', width: 1, height: 1 }], caption: 'look' }))) === 200)
-  const photo = sql(`select text from messages where text like 'look%' and created_at > now() - interval '1 minute' limit 1`)
+  const photo = await sql(`select top 1 text from messages where text like 'look%' and created_at > dateadd(minute, -1, sysdatetimeoffset())`)
   check('photo becomes a placeholder message', photo.includes('photo') && photo.includes('not supported'), photo.replace(/\n/g, ' / '))
 
   // 12. Группы игнорируются
   check('group message accepted', (await tg(botId, secret, { ...msg(USER3, 32, { text: `Group ${run}` }), chat: { id: -100123, type: 'group' } })) === 200)
-  check('group message ignored', sql(`select count(*) from messages where text = 'Group ${run}'`) === '0')
+  check('group message ignored', (await sql(`select count(*) from messages where text = 'Group ${run}'`)) === '0')
 
   // 13. Настройки
   const bots = await (await fetch(`${ADMIN}/api/settings/telegram-bots`, { headers: auth })).json()
@@ -177,6 +176,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const logs = fs.readFileSync(process.argv[2], 'utf8') + fs.readFileSync(process.argv[3], 'utf8')
   check('bot token not in logs', !logs.includes(botToken.split(':')[1]))
 
+  await close()
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED')
   process.exit(failed ? 1 : 0)
 })().catch((e) => { console.error(e); process.exit(1) })

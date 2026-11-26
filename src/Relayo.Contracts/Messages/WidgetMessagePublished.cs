@@ -11,7 +11,11 @@ public sealed record WidgetMessageDto(
     string? AuthorName,
     string Text,
     DateTimeOffset CreatedAt,
-    string? ClientMessageId);
+    string? ClientMessageId,
+    IReadOnlyList<WidgetAttachmentDto>? Attachments = null);
+
+/// <summary>Вложение сообщения: имя, тип, размер и временная ссылка на скачивание.</summary>
+public sealed record WidgetAttachmentDto(Guid Id, string FileName, string ContentType, long Size, string? Url);
 
 /// <summary>
 /// Внутренний сервис сообщает публичным, что появилось сообщение, которое надо

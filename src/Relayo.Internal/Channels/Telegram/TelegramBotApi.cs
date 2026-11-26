@@ -59,16 +59,44 @@ public sealed partial class TelegramBotApi(IHttpClientFactory httpClients)
         CallAsync<TgMessage>(token, "sendMessage",
             new { chat_id = chatId, text = html, parse_mode = "HTML", link_preview_options = new { is_disabled = true } }, ct);
 
-    private async Task<T> CallAsync<T>(string token, string method, object? body, CancellationToken ct)
+    /// <summary>
+    /// Файл: картинка — sendPhoto (Telegram покажет её в чате), остальное — sendDocument.
+    /// Подпись в HTML, до 1024 символов.
+    /// </summary>
+    public Task<TgMessage> SendFileAsync(string token, long chatId, byte[] content, string fileName, string contentType,
+        string? captionHtml, CancellationToken ct)
+    {
+        // sendPhoto принимает до 10 МБ и пережимает картинку; GIF лучше отправить файлом, иначе он станет статичным.
+        var asPhoto = contentType is "image/jpeg" or "image/png" or "image/webp" && content.Length <= 10 * 1024 * 1024;
+        var field = asPhoto ? "photo" : "document";
+        var form = new MultipartFormDataContent
+        {
+            { new StringContent(chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id" },
+        };
+        if (!string.IsNullOrEmpty(captionHtml))
+        {
+            form.Add(new StringContent(captionHtml), "caption");
+            form.Add(new StringContent("HTML"), "parse_mode");
+        }
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(file, field, fileName);
+        return PostAsync<TgMessage>(token, asPhoto ? "sendPhoto" : "sendDocument", form, ct);
+    }
+
+    private Task<T> CallAsync<T>(string token, string method, object? body, CancellationToken ct) =>
+        PostAsync<T>(token, method, JsonContent.Create(body ?? new { }, options: Json), ct);
+
+    private async Task<T> PostAsync<T>(string token, string method, HttpContent content, CancellationToken ct)
     {
         if (!IsValidToken(token))
+        {
+            content.Dispose();
             throw new TelegramApiException(401, "Bot token has an invalid format", null);
+        }
 
         // «./» обязательно: иначе «bot123:abc/getMe» читается как адрес со схемой «bot123».
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"./bot{token}/{method}")
-        {
-            Content = JsonContent.Create(body ?? new { }, options: Json),
-        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"./bot{token}/{method}") { Content = content };
         using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, ct);
 
         TgResponse<T>? payload = null;

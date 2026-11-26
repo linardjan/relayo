@@ -172,20 +172,36 @@ public sealed class Widget
 
     public string DefaultLocale { get; private set; } = "en";
 
+    /// <summary>id канала Usedesk (company_email_channels.id), из которого перенесён канал: повторный импорт его не дублирует,
+    /// перенесённая история находит по нему канал.</summary>
+    public int? UsedeskChannelId { get; private set; }
+
+    public void LinkUsedeskChannel(int channelId) => UsedeskChannelId = channelId;
+
     /// <summary>Какого Telegram-бота открывает кнопка «Continue in Telegram». Пусто — кнопки нет.</summary>
     public Guid? TelegramBotId { get; private set; }
+
+    /// <summary>На какой номер WhatsApp ведёт кнопка WhatsApp. Пусто — кнопки нет.</summary>
+    public Guid? WhatsAppChannelId { get; private set; }
+
+    /// <summary>Внешний вид и поведение на сайте: подпись, кнопка, подсказка, звук, пункты.</summary>
+    public WidgetOptions Options { get; private set; } = WidgetOptions.Default;
 
     public DateTimeOffset CreatedAt { get; private set; }
 
     public void Configure(string name, IdentificationMode mode, string title, string greeting, string accentColor,
-        WidgetPosition position, string defaultLocale, Guid? telegramBotId, DateTimeOffset now)
+        WidgetPosition position, string defaultLocale, Guid? telegramBotId, Guid? whatsAppChannelId, WidgetOptions options,
+        DateTimeOffset now)
     {
         var changed = Name != name || IdentificationMode != mode || Title != title || Greeting != greeting
                       || AccentColor != accentColor || Position != position || DefaultLocale != defaultLocale
-                      || TelegramBotId != telegramBotId;
+                      || TelegramBotId != telegramBotId || WhatsAppChannelId != whatsAppChannelId
+                      || !SameOptions(Options, options);
         if (changed)
             UpdatedAt = now;
+        Options = options;
         TelegramBotId = telegramBotId;
+        WhatsAppChannelId = whatsAppChannelId;
         Name = name;
         IdentificationMode = mode;
         Title = title;
@@ -194,6 +210,33 @@ public sealed class Widget
         Position = position;
         DefaultLocale = defaultLocale;
     }
+
+    /// <summary>Бот удалён: кнопка Telegram пропадает из виджета.</summary>
+    public void DetachTelegramBot(DateTimeOffset now)
+    {
+        TelegramBotId = null;
+        Options = Options with { Items = Options.Items.Where(i => i.Type != LauncherItemType.Telegram).ToList() };
+        UpdatedAt = now;
+    }
+
+    /// <summary>Канал WhatsApp удалён: кнопка WhatsApp пропадает из виджета.</summary>
+    public void DetachWhatsAppChannel(DateTimeOffset now)
+    {
+        WhatsAppChannelId = null;
+        Options = Options with { Items = Options.Items.Where(i => i.Type != LauncherItemType.WhatsApp).ToList() };
+        UpdatedAt = now;
+    }
+
+    /// <summary>Своя картинка кнопки загружена или убрана: на сайтах она появится после публикации.</summary>
+    public void SetButtonIcon(string? fileName, DateTimeOffset now)
+    {
+        Options = Options with { ButtonIcon = fileName };
+        UpdatedAt = now;
+    }
+
+    // В настройках есть списки: записи с ними сравниваются по ссылке, поэтому сравниваем содержимое.
+    private static bool SameOptions(WidgetOptions a, WidgetOptions b) =>
+        System.Text.Json.JsonSerializer.Serialize(a) == System.Text.Json.JsonSerializer.Serialize(b);
 }
 
 /// <summary>Публичные ключи виджетов: 10 символов из латиницы и цифр, около 59 бит случайности.</summary>

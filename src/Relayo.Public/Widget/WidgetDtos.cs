@@ -1,8 +1,11 @@
+using System.Text.Json;
 using Relayo.Contracts.Grpc;
 using Relayo.Contracts.Messages;
 
 namespace Relayo.Public.Widget;
 
+/// <summary>Настройки виджета. Совпадают с настройками в опубликованном файле widget_&lt;ключ&gt;.js.</summary>
+/// <param name="Options">Внешний вид и поведение: внутренний сервис присылает их готовым JSON.</param>
 public sealed record WidgetConfigDto(
     string WidgetId,
     string Title,
@@ -12,11 +15,21 @@ public sealed record WidgetConfigDto(
     string IdentificationMode,
     string DefaultLocale,
     int HistoryDays,
-    string? TelegramBot)
+    string? TelegramBot,
+    JsonElement? Options,
+    string? ButtonIconUrl,
+    long MaxAttachmentBytes,
+    string? WhatsApp,
+    bool WhatsAppCode)
 {
     public static WidgetConfigDto From(WidgetConfig c) => new(
         c.WidgetId, c.Title, c.Greeting, c.AccentColor, c.Position, c.IdentificationMode, c.DefaultLocale, c.HistoryDays,
-        string.IsNullOrEmpty(c.TelegramBot) ? null : c.TelegramBot);
+        string.IsNullOrEmpty(c.TelegramBot) ? null : c.TelegramBot,
+        string.IsNullOrEmpty(c.OptionsJson) ? null : JsonDocument.Parse(c.OptionsJson).RootElement.Clone(),
+        string.IsNullOrEmpty(c.ButtonIconUrl) ? null : c.ButtonIconUrl,
+        c.AllowAttachments ? c.MaxAttachmentBytes : 0,
+        string.IsNullOrEmpty(c.Whatsapp) ? null : c.Whatsapp,
+        c.WhatsappCode);
 }
 
 public sealed record MessengerLinkDto(string Url, DateTimeOffset ExpiresAt);
@@ -27,7 +40,7 @@ public sealed record IdentifyTokenRequest(string Token);
 
 public sealed record IdentifyDirectRequest(string ClientId, string? Product, string? Locale);
 
-public sealed record SendMessageRequest(string Text, string? ClientMessageId);
+public sealed record SendMessageRequest(string Text, string? ClientMessageId, string? PageUrl = null);
 
 internal static class WidgetMapping
 {
@@ -38,5 +51,9 @@ internal static class WidgetMapping
         string.IsNullOrEmpty(m.AuthorName) ? null : m.AuthorName,
         m.Text,
         DateTimeOffset.FromUnixTimeMilliseconds(m.CreatedAtUnixMs),
-        string.IsNullOrEmpty(m.ClientMessageId) ? null : m.ClientMessageId);
+        string.IsNullOrEmpty(m.ClientMessageId) ? null : m.ClientMessageId,
+        m.Attachments.Count == 0
+            ? null
+            : m.Attachments.Select(a => new WidgetAttachmentDto(Guid.Parse(a.Id), a.FileName, a.ContentType, a.Size,
+                string.IsNullOrEmpty(a.Url) ? null : a.Url)).ToList());
 }

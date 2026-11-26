@@ -1,0 +1,24 @@
+{
+  "name": "relayo-whatsapp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Шлюз WhatsApp для Relayo: подключение номера по QR-коду (протокол WhatsApp Web)",
+  "type": "module",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -p tsconfig.json && node --env-file-if-exists=../../.env dist/main.js"
+  },
+  "dependencies": {
+    "baileys": "^7.0.0-rc14",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.11",
+    "typescript": "^7.0.2"
+  }
+}

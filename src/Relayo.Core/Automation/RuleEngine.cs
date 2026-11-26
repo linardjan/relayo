@@ -9,12 +9,13 @@ namespace Relayo.Core.Automation;
 /// <summary>Событие для правил. Kind: client_message, operator_replied, ticket_assigned, ticket_closed, status_changed.</summary>
 public sealed record RuleEventInput(Guid TicketId, string Kind, Guid? MessageId = null, bool TicketCreated = false);
 
-/// <summary>Автоответ правила: его нужно показать операторам, доставить в виджет и, если нужно, в Telegram.</summary>
+/// <summary>Автоответ правила: его нужно показать операторам, доставить в виджет и, если нужно, в мессенджер.</summary>
 public sealed record AutomatedMessage(
     MessageView Widget,
     OperatorMessageView Operator,
     WidgetRecipients Recipients,
-    TelegramDelivery? Telegram);
+    TelegramDelivery? Telegram,
+    WhatsAppDelivery? WhatsApp = null);
 
 /// <summary>Таймер «не ответил N минут»: проверить правило через Minutes после сообщения MessageId.</summary>
 public sealed record RuleTimer(Guid RuleId, string Type, int Minutes, Guid MessageId);
@@ -92,7 +93,9 @@ public sealed class RuleEngine(
             return RuleRunResult.Nothing(ticketId);
 
         var chatIds = ticket.Chats.Select(c => c.Id).ToList();
-        var messages = db.Messages.AsNoTracking().Where(m => chatIds.Contains(m.ChatId));
+        // Внутренние заметки клиенту не видны: ответом они не считаются.
+        var messages = db.Messages.AsNoTracking()
+            .Where(m => chatIds.Contains(m.ChatId) && m.Visibility == MessageVisibility.Public);
         var lastOperatorAt = await messages.Where(m => m.Author == MessageAuthor.Operator && m.OperatorId != null)
             .MaxAsync(m => (DateTimeOffset?)m.CreatedAt, ct);
 
@@ -202,8 +205,8 @@ public sealed class RuleEngine(
         CancellationToken ct)
     {
         var chat = ticket.Chats.FirstOrDefault(c => c.Id == chatId) ?? ticket.Chats.MaxBy(c => c.LastMessageAt)!;
-        var (channel, telegram) = await tickets.ReplyRouteAsync(chat.Id, ct);
-        var message = Message.FromAutomation(chat, text, channel, now);
+        var route = await tickets.ReplyRouteAsync(chat.Id, ct);
+        var message = Message.FromAutomation(chat, text, route.Channel, now);
         db.Messages.Add(message);
         chat.OnMessage(now);
         await db.SaveChangesAsync(ct);
@@ -213,7 +216,8 @@ public sealed class RuleEngine(
             new OperatorMessageView(message.Id, chat.Id, message.Author, TicketService.AutoReplyName, message.Text,
                 message.CreatedAt, message.Channel, Automated: true),
             await widgets.GetRecipientsAsync(chat, ct),
-            telegram is { } t ? new TelegramDelivery(t.BotId, t.ChatId, null, text) : null);
+            route.Telegram is { } t ? new TelegramDelivery(t.BotId, t.ChatId, null, text) : null,
+            route.WhatsApp is { } w ? new WhatsAppDelivery(w.ChannelId, w.ChatJid, null, text) : null);
     }
 
     private async Task<int> AutoRepliesLastHourAsync(Ticket ticket, CancellationToken ct)
@@ -227,8 +231,7 @@ public sealed class RuleEngine(
     private async Task<Ticket?> LockTicketAsync(Guid ticketId, CancellationToken ct)
     {
         // Правила одного тикета выполняются по очереди: иначе два события подряд могли бы оба отправить автоответ.
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({"rules:" + ticketId}, 0))", ct);
+        await db.LockAsync("rules:" + ticketId, ct);
         return await db.Tickets.Include(t => t.Chats).SingleOrDefaultAsync(t => t.Id == ticketId, ct);
     }
 
@@ -275,6 +278,7 @@ public sealed class RuleEngine(
         {
             { Type: IdentityType.Visitor, WidgetId: { } widgetId } => $"widget:{widgetId}",
             { Type: IdentityType.Telegram, ChannelId: { } botId } => $"telegram:{botId}",
+            { Type: IdentityType.WhatsApp, ChannelId: { } whatsAppId } => $"whatsapp:{whatsAppId}",
             _ => null,
         };
 

@@ -21,7 +21,7 @@ public sealed class ConversationEvents(
         await operators.TicketChangedAsync(summary);
         await operators.MessageCreatedAsync(posted.TicketId, new OperatorMessageView(
             posted.Message.Id, posted.Message.ChatId, posted.Message.Author, null, posted.Message.Text,
-            posted.Message.CreatedAt, channel));
+            posted.Message.CreatedAt, channel, Attachments: posted.Message.Attachments));
         // Сообщение клиента запускает правила; системные пометки («перешёл в Telegram») — нет.
         if (posted.Message.Author == MessageAuthor.Client)
             await automation.ClientMessageAsync(posted);

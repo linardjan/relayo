@@ -10,9 +10,9 @@ public class ArchitectureTests
 {
     [Theory]
     [InlineData("Relayo.Core")]
-    [InlineData("Npgsql")]
+    [InlineData("Microsoft.Data.SqlClient")]
     [InlineData("Microsoft.EntityFrameworkCore")]
-    [InlineData("WolverineFx.Postgresql")]
+    [InlineData("WolverineFx.SqlServer")]
     [InlineData("WolverineFx.EntityFrameworkCore")]
     public void Public_service_does_not_depend_on_database(string forbidden)
     {

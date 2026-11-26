@@ -45,6 +45,12 @@ public sealed class TelegramBot
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>id канала Usedesk (company_email_channels.id), из которого перенесён канал: повторный импорт его не дублирует,
+    /// перенесённая история находит по нему канал.</summary>
+    public int? UsedeskChannelId { get; private set; }
+
+    public void LinkUsedeskChannel(int channelId) => UsedeskChannelId = channelId;
+
     public void Update(string name, Guid siteId, bool enabled)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

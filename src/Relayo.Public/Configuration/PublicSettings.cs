@@ -1,4 +1,5 @@
 using Relayo.ServiceDefaults;
+using Relayo.ServiceDefaults.Redis;
 
 namespace Relayo.Public.Configuration;
 
@@ -8,7 +9,11 @@ public sealed record PublicSettings(
     string InternalGrpcKey,
     RabbitSettings Rabbit,
     string[] CorsExtraOrigins,
-    int RateLimitRequestsPerMinute)
+    int RateLimitRequestsPerMinute,
+    int RateLimitUploadsPerMinute,
+    long AttachmentsMaxBytes,
+    string[] AttachmentsAllowedTypes,
+    RedisSettings? Redis)
 {
     public static PublicSettings Load(IConfiguration configuration)
     {
@@ -24,7 +29,13 @@ public sealed record PublicSettings(
             config.Required("INTERNAL_GRPC_KEY"),
             RabbitSettings.Load(config, "RABBITMQ_PUBLIC_USER", "RABBITMQ_PUBLIC_PASSWORD"),
             config.List("PUBLIC_CORS_EXTRA_ORIGINS"),
-            config.Int("PUBLIC_RATE_LIMIT_REQUESTS_PER_MINUTE", 120));
+            config.Int("PUBLIC_RATE_LIMIT_REQUESTS_PER_MINUTE", 120),
+            config.Int("PUBLIC_RATE_LIMIT_UPLOADS_PER_MINUTE", 10),
+            // Те же ограничения проверяет внутренний сервис (вместе с содержимым файлов).
+            Math.Clamp(config.Int("ATTACHMENTS_MAX_SIZE_MB", 20), 1, 100) * 1024L * 1024L,
+            config.List("ATTACHMENTS_ALLOWED_TYPES").Select(t => t.Trim().ToLowerInvariant()).ToArray(),
+            // Лимиты на IP общие для экземпляров, только если задан REDIS_HOST.
+            RedisSettings.Load(config));
 
         config.ThrowIfInvalid();
         return settings;

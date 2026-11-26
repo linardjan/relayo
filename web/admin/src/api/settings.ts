@@ -20,6 +20,35 @@ export interface Site {
 export type IdentificationMode = 'SignedToken' | 'Direct'
 export type WidgetPosition = 'Right' | 'Left'
 
+export type LauncherItemType = 'Chat' | 'Telegram' | 'Link' | 'WhatsApp'
+
+export interface LauncherItem {
+  type: LauncherItemType
+  label: string
+  url?: string | null
+}
+
+/** Внешний вид и поведение виджета на сайте (страница канала). */
+export interface WidgetOptions {
+  caption: string
+  allowAttachments: boolean
+  zIndex: number
+  hideOnOutsideClick: boolean
+  visibility: 'Always' | 'Never'
+  buttonDelaySeconds: number
+  buttonColor: string | null
+  /** Имя файла своей картинки кнопки; меняется загрузкой, в форме его можно только убрать. */
+  buttonIcon: string | null
+  tooltipMode: 'Never' | 'Always' | 'Hover'
+  tooltipText: string
+  tooltipBackground: string
+  tooltipColor: string
+  tooltipTextSize: number
+  sound: 'None' | 'Beep'
+  operatorName: string | null
+  items: LauncherItem[]
+}
+
 export interface WidgetInput {
   name: string
   identificationMode: IdentificationMode
@@ -29,6 +58,9 @@ export interface WidgetInput {
   position: WidgetPosition
   defaultLocale: string
   telegramBotId: string | null
+  /** Канал WhatsApp, на номер которого ведёт кнопка WhatsApp. */
+  whatsAppChannelId: string | null
+  options: WidgetOptions
 }
 
 export interface Widget extends WidgetInput {
@@ -49,6 +81,8 @@ export interface WidgetRow {
   embedCode: string
   /** Адрес опубликованного файла в S3; null — хранилище не настроено. */
   fileUrl: string | null
+  /** Адрес своей картинки кнопки для предпросмотра. */
+  buttonIconUrl: string | null
 }
 
 export interface WidgetVersion {
@@ -75,6 +109,95 @@ export interface TelegramBotInput {
   isEnabled: boolean
   /** Пусто при изменении — оставить прежний токен. */
   token?: string
+}
+
+/** LinkOnly — виджет только открывает wa.me; Gateway — номер подключён по QR, переписка идёт в Relayo. */
+export type WhatsAppMode = 'LinkOnly' | 'Gateway'
+
+export interface WhatsAppChannel {
+  id: string
+  name: string
+  mode: WhatsAppMode
+  /** Только цифры с кодом страны: 79001234567. В режиме QR — из WhatsApp после подключения. */
+  phoneNumber: string | null
+  siteId: string
+  siteCode: string
+  isEnabled: boolean
+  isConnected: boolean
+  accountName: string | null
+  connectedAt: string | null
+  createdAt: string
+  widgetCount: number
+}
+
+export interface WhatsAppChannelInput {
+  name: string
+  mode: WhatsAppMode
+  phoneNumber?: string | null
+  siteId: string
+  isEnabled: boolean
+}
+
+/** Состояние подключения в шлюзе. unavailable — шлюз не отвечает; configured=false — шлюз не настроен в .env. */
+export interface WhatsAppConnection {
+  configured: boolean
+  status: 'starting' | 'qr' | 'connected' | 'disconnected' | 'unavailable'
+  qr: string | null
+  qrExpiresAt: string | null
+  phone: string | null
+  name: string | null
+  /** logged_out, qr_timeout, replaced */
+  reason: string | null
+}
+
+/** Шифрование соединения с почтовым сервером. */
+export type MailSecurity = 'Ssl' | 'StartTls' | 'None'
+export type EmailQuoting = 'SendToClient' | 'DoNotSend'
+
+export interface MailServer {
+  email: string
+  host: string
+  port: number
+  security: MailSecurity
+  /** null — входить по адресу. */
+  username: string | null
+  hasPassword: boolean
+}
+
+export interface EmailChannel {
+  id: string
+  name: string
+  siteId: string
+  siteCode: string
+  isEnabled: boolean
+  forwardCreatesTicket: boolean
+  quoting: EmailQuoting
+  imap: MailServer
+  smtp: MailServer
+  lastCheckAt: string | null
+  lastCheckOk: boolean | null
+  lastCheckMessage: string | null
+  createdAt: string
+}
+
+export interface MailServerInput {
+  email: string
+  host: string
+  port: number
+  security: MailSecurity
+  username?: string | null
+  /** Пусто при изменении — оставить сохранённый пароль. */
+  password?: string
+}
+
+export interface EmailChannelInput {
+  name: string
+  siteId: string
+  isEnabled: boolean
+  forwardCreatesTicket: boolean
+  quoting: EmailQuoting
+  imap: MailServerInput
+  smtp: MailServerInput
 }
 
 export interface StaffUser {
@@ -166,13 +289,39 @@ export const settingsApi = {
   widgetVersions: (id: string) => api<WidgetVersion[]>(`/api/settings/widgets/${id}/versions`),
   rollbackWidget: (id: string, version: number) =>
     api<WidgetRow>(`/api/settings/widgets/${id}/versions/${version}/rollback`, json('POST')),
+  deleteWidget: (id: string) => api<void>(`/api/settings/widgets/${id}`, json('DELETE')),
+  uploadButtonIcon: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api<WidgetRow>(`/api/settings/widgets/${id}/button-icon`, { method: 'POST', body: form })
+  },
 
   telegramBots: () => api<TelegramBot[]>('/api/settings/telegram-bots'),
   createTelegramBot: (input: TelegramBotInput) => api<TelegramBot>('/api/settings/telegram-bots', json('POST', input)),
   updateTelegramBot: (id: string, input: TelegramBotInput) =>
     api<TelegramBot>(`/api/settings/telegram-bots/${id}`, json('PUT', input)),
+  deleteTelegramBot: (id: string) => api<void>(`/api/settings/telegram-bots/${id}`, json('DELETE')),
 
-  channelCounts: () => api<{ widgets: Record<string, number>; telegramBots: Record<string, number> }>('/api/settings/channels/counts'),
+  whatsAppChannels: () => api<WhatsAppChannel[]>('/api/settings/whatsapp-channels'),
+  createWhatsAppChannel: (input: WhatsAppChannelInput) =>
+    api<WhatsAppChannel>('/api/settings/whatsapp-channels', json('POST', input)),
+  updateWhatsAppChannel: (id: string, input: WhatsAppChannelInput) =>
+    api<WhatsAppChannel>(`/api/settings/whatsapp-channels/${id}`, json('PUT', input)),
+  deleteWhatsAppChannel: (id: string) => api<void>(`/api/settings/whatsapp-channels/${id}`, json('DELETE')),
+  whatsAppConnection: (id: string) => api<WhatsAppConnection>(`/api/settings/whatsapp-channels/${id}/connection`),
+  connectWhatsApp: (id: string) => api<WhatsAppConnection>(`/api/settings/whatsapp-channels/${id}/connect`, json('POST')),
+  disconnectWhatsApp: (id: string) =>
+    api<WhatsAppChannel>(`/api/settings/whatsapp-channels/${id}/disconnect`, json('POST')),
+  emailChannels: () => api<EmailChannel[]>('/api/settings/email-channels'),
+  createEmailChannel: (input: EmailChannelInput) => api<EmailChannel>('/api/settings/email-channels', json('POST', input)),
+  updateEmailChannel: (id: string, input: EmailChannelInput) =>
+    api<EmailChannel>(`/api/settings/email-channels/${id}`, json('PUT', input)),
+  checkEmailChannel: (id: string) => api<EmailChannel>(`/api/settings/email-channels/${id}/check`, json('POST')),
+  deleteEmailChannel: (id: string) => api<void>(`/api/settings/email-channels/${id}`, json('DELETE')),
+  channelCounts: () =>
+    api<{ widgets: Record<string, number>; telegramBots: Record<string, number>; whatsAppChannels: Record<string, number> }>(
+      '/api/settings/channels/counts',
+    ),
 
   ldap: () => api<LdapSettings>('/api/settings/ldap'),
   saveLdap: (input: LdapSettingsInput) => api<LdapSettings>('/api/settings/ldap', json('PUT', input)),

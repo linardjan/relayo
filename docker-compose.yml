@@ -1,6 +1,6 @@
 # Локальная инфраструктура для разработки.
 #
-#   docker compose up -d                 — PostgreSQL, Redis, RabbitMQ, S3, Seq
+#   docker compose up -d                 — MS SQL, Redis, RabbitMQ, S3, Seq
 #   docker compose --profile ad up -d    — то же плюс тестовый AD (Samba)
 #
 # Переменные берутся из .env (скопируйте .env.example).
@@ -9,22 +9,26 @@
 name: ${COMPOSE_PROJECT_NAME:-relayo}
 
 services:
-  postgres:
-    image: postgres:18-alpine
+  # MS SQL Server. Образ задаётся MSSQL_IMAGE: по умолчанию SQL Server 2022 (amd64).
+  # На Mac с Apple Silicon без Rosetta в Docker — Azure SQL Edge (arm64), см. README.
+  # Базу relayo создаёт сам Relayo.Internal при первом запуске (DB_MIGRATE_ON_START=true).
+  mssql:
+    image: ${MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${MSSQL_PORT}:1433"
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - mssql-data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      # sqlcmd есть не во всех образах, поэтому проверяем, что порт принимает соединения.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1433'"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
 
   redis:
     image: redis:8-alpine
@@ -162,8 +166,22 @@ services:
       - samba-var:/usr/local/samba/var
       - ./tools/test-ad:/seed:ro
 
+  # Тестовая БД Usedesk (MySQL) для проверки импорта. Только с профилем "usedesk".
+  # Схема и фейковые данные — tools/usedesk-mock, загружаются при первом запуске.
+  usedesk-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    profiles: ["usedesk"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${TEST_USEDESK_MYSQL_PASSWORD}
+      MYSQL_DATABASE: usedesk
+    ports:
+      - "${TEST_USEDESK_MYSQL_PORT}:3306"
+    volumes:
+      - ./tools/usedesk-mock:/docker-entrypoint-initdb.d:ro
+
 volumes:
-  postgres-data:
+  mssql-data:
   redis-data:
   rabbitmq-data:
   s3-data:

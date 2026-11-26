@@ -10,8 +10,21 @@ public interface IFileStorage
 {
     bool IsConfigured { get; }
 
-    /// <summary>Кладёт файл в публичный бакет виджетов.</summary>
-    Task PutWidgetFileAsync(string name, byte[] content, string cacheControl, CancellationToken ct);
+    /// <summary>Кладёт файл в публичный бакет виджетов: скрипт виджета или картинку кнопки.</summary>
+    Task PutWidgetFileAsync(string name, byte[] content, string cacheControl, CancellationToken ct,
+        string contentType = "application/javascript; charset=utf-8");
+
+    /// <summary>Удаляет файл из бакета виджетов. Отсутствие файла — не ошибка.</summary>
+    Task DeleteWidgetFileAsync(string name, CancellationToken ct);
+
+    /// <summary>Кладёт вложение в закрытый бакет вложений.</summary>
+    Task PutAttachmentAsync(string key, byte[] content, string contentType, CancellationToken ct);
+
+    /// <summary>Читает вложение: например, чтобы отправить его в Telegram.</summary>
+    Task<byte[]> ReadAttachmentAsync(string key, CancellationToken ct);
+
+    /// <summary>Временная ссылка на скачивание вложения или null, если хранилище не настроено.</summary>
+    string? AttachmentUrl(string key, string fileName, string contentType);
 }
 
 /// <param name="PublicBaseUrl">Адрес публичного сервиса: API виджета и ядро core.js.</param>
@@ -31,7 +44,12 @@ public sealed record WidgetSnapshot(
     string IdentificationMode,
     string DefaultLocale,
     int HistoryDays,
-    string? TelegramBot);
+    string? TelegramBot,
+    WidgetOptions? Options = null,
+    string? ButtonIconUrl = null,
+    long MaxAttachmentBytes = 0,
+    string? WhatsApp = null,
+    bool WhatsAppCode = false);
 
 /// <summary>Опубликованная версия виджета. Откат — повторная публикация её настроек.</summary>
 public sealed class WidgetVersion
@@ -77,20 +95,45 @@ public sealed class WidgetPublisher(
     RelayoDbContext db,
     IFileStorage storage,
     WidgetPublishingOptions options,
+    Files.AttachmentLimits attachments,
     TimeProvider time)
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    /// <summary>Перечисления — строками: их читает виджет в браузере.</summary>
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
 
     // Для файла виджета: кавычки и кириллица без \u-экранирования, чтобы файл читался глазами.
     // Это отдельный .js-файл, а не HTML, поэтому мягкое экранирование безопасно.
-    private static readonly JsonSerializerOptions ScriptJson = new(JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions ScriptJson = new(Json)
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    /// <summary>
+    /// Настройки виджета в том виде, в каком их получает браузер: в опубликованном файле и в ответе /config.
+    /// </summary>
+    /// <param name="whatsApp">Номер WhatsApp (только цифры), если к виджету подключён включённый канал.</param>
+    /// <param name="whatsAppCode">Канал в режиме QR: виджет открывает WhatsApp с кодом перехода, переписка продолжается.</param>
+    public WidgetSnapshot Snapshot(Widget widget, string? telegramBot, string? whatsApp = null, bool whatsAppCode = false) => new(
+        widget.Id.ToString(), widget.Title, widget.Greeting, widget.AccentColor,
+        widget.Position == WidgetPosition.Left ? "left" : "right",
+        widget.IdentificationMode == IdentificationMode.SignedToken ? "signed_token" : "direct",
+        widget.DefaultLocale, Conversations.WidgetConversationService.HistoryDays, telegramBot,
+        // Имя файла картинки браузеру не нужно — только адрес.
+        widget.Options with { ButtonIcon = null },
+        widget.Options.ButtonIcon is { } icon ? WidgetFileUrl(icon) : null,
+        widget.Options.AllowAttachments && storage.IsConfigured ? attachments.MaxBytes : 0,
+        whatsApp,
+        whatsApp is not null && whatsAppCode);
+
+    /// <summary>Адрес файла в бакете виджетов, как его открывает браузер.</summary>
+    public string? WidgetFileUrl(string name) =>
+        options.FilesBaseUrl is { Length: > 0 } baseUrl ? $"{baseUrl.TrimEnd('/')}/{name}" : null;
+
     /// <summary>Адрес файла виджета для кода вставки или null, если хранилище не настроено.</summary>
-    public string? FileUrl(string publicKey) =>
-        options.FilesBaseUrl is { Length: > 0 } baseUrl ? $"{baseUrl.TrimEnd('/')}/{FileName(publicKey)}" : null;
+    public string? FileUrl(string publicKey) => WidgetFileUrl(FileName(publicKey));
 
     public static string FileName(string publicKey) => $"widget_{publicKey}.js";
 
@@ -114,9 +157,14 @@ public sealed class WidgetPublisher(
         var stored = JsonSerializer.Deserialize<StoredSnapshot>(old.SnapshotJson, Json)!;
         var s = stored.Config;
         var botId = stored.TelegramBotId is { } id && await db.TelegramBots.AnyAsync(b => b.Id == id, ct) ? id : (Guid?)null;
+        var whatsAppId = stored.WhatsAppChannelId is { } wa && await db.WhatsAppChannels.AnyAsync(c => c.Id == wa, ct)
+            ? wa
+            : (Guid?)null;
+        // Картинку кнопки возвращаем ту, что была в версии; версии до появления настроек их не меняют.
+        var restored = s.Options is { } o ? o with { ButtonIcon = stored.ButtonIcon } : widget.Options;
         widget.Configure(stored.Name, s.IdentificationMode == "direct" ? IdentificationMode.Direct : IdentificationMode.SignedToken,
             s.Title, s.Greeting, s.AccentColor, s.Position == "left" ? WidgetPosition.Left : WidgetPosition.Right,
-            s.DefaultLocale, botId, time.GetUtcNow());
+            s.DefaultLocale, botId, whatsAppId, restored.Normalize(botId is not null, whatsAppId is not null), time.GetUtcNow());
         await db.SaveChangesAsync(ct);
         await PublishAsync(widget, userId, $"Rollback to v{version}", ct);
     }
@@ -130,10 +178,11 @@ public sealed class WidgetPublisher(
         var bot = widget.TelegramBotId is { } botId
             ? await db.TelegramBots.Where(b => b.Id == botId && b.IsEnabled).Select(b => b.Username).SingleOrDefaultAsync(ct)
             : null;
-        var snapshot = new WidgetSnapshot(widget.Id.ToString(), widget.Title, widget.Greeting, widget.AccentColor,
-            widget.Position == WidgetPosition.Left ? "left" : "right",
-            widget.IdentificationMode == IdentificationMode.SignedToken ? "signed_token" : "direct",
-            widget.DefaultLocale, Conversations.WidgetConversationService.HistoryDays, bot);
+        var whatsApp = widget.WhatsAppChannelId is { } whatsAppId
+            ? await db.WhatsAppChannels.Where(c => c.Id == whatsAppId && c.IsEnabled && c.PhoneNumber != null)
+                .Select(c => new { c.PhoneNumber, c.Mode }).SingleOrDefaultAsync(ct)
+            : null;
+        var snapshot = Snapshot(widget, bot, whatsApp?.PhoneNumber, whatsApp?.Mode == Channels.WhatsAppMode.Gateway);
 
         var now = time.GetUtcNow();
         var version = (await db.WidgetVersions.Where(v => v.WidgetId == widget.Id).MaxAsync(v => (int?)v.Version, ct) ?? 0) + 1;
@@ -146,7 +195,8 @@ public sealed class WidgetPublisher(
         var publishedBy = userId is null
             ? "System"
             : await db.Users.Where(u => u.Id == userId).Select(u => u.FullName).SingleOrDefaultAsync(ct) ?? "—";
-        var stored = new StoredSnapshot(widget.Name, widget.TelegramBotId, snapshot);
+        var stored = new StoredSnapshot(widget.Name, widget.TelegramBotId, snapshot, widget.Options.ButtonIcon,
+            widget.WhatsAppChannelId);
         db.WidgetVersions.Add(new WidgetVersion(widget.Id, version, JsonSerializer.Serialize(stored, Json), publishedBy, note, now));
         widget.MarkPublished(version, now);
         await db.SaveChangesAsync(ct);
@@ -181,5 +231,6 @@ public sealed class WidgetPublisher(
         await db.Widgets.SingleOrDefaultAsync(w => w.Id == widgetId, ct)
         ?? throw new DomainException(ErrorCodes.WidgetNotFound, "Widget not found");
 
-    private sealed record StoredSnapshot(string Name, Guid? TelegramBotId, WidgetSnapshot Config);
+    private sealed record StoredSnapshot(string Name, Guid? TelegramBotId, WidgetSnapshot Config, string? ButtonIcon = null,
+        Guid? WhatsAppChannelId = null);
 }

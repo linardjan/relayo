@@ -9,8 +9,9 @@
 |---|---|
 | `src/Relayo.Internal` | Внутренний сервис: API админки (порт 5100), gRPC для публичного сервиса (5101), фоновые задачи. Только внутренняя сеть |
 | `src/Relayo.Public` | Публичный сервис: API виджета, вебхуки мессенджеров (5200). Доступен из интернета, **доступа к БД не имеет** |
-| `src/Relayo.Core` | Доменная модель и данные (EF Core, PostgreSQL). Используется только внутренним сервисом |
+| `src/Relayo.Core` | Доменная модель и данные (EF Core, MS SQL Server). Используется только внутренним сервисом |
 | `src/Relayo.Contracts` | Контракты между сервисами: gRPC (`Protos/`) и сообщения шины |
+| `src/Relayo.WhatsApp` | Шлюз WhatsApp (Node.js, Baileys): подключение номеров по QR-коду, приём и отправка сообщений (5400). Только внутренняя сеть |
 | `src/Relayo.ServiceDefaults` | Общая обвязка: `.env`, проверка настроек, логи, трассировка, health checks |
 | `web/admin` | Админка: React + TypeScript + AntD (порт 5173) |
 | `web/widget` | Виджет чата: Preact в Shadow DOM. Собирается в `src/Relayo.Public/wwwroot/widget/core.js` |
@@ -38,7 +39,9 @@ cp .env.example .env
 # Заполнить пустые значения с пометкой GENERATE (openssl rand -base64 32)
 # и BOOTSTRAP_ADMIN_PASSWORD — пароль первого администратора.
 
-# 2. Инфраструктура: PostgreSQL, Redis, RabbitMQ, S3 (RustFS), Seq и тестовый сайт
+# 2. Инфраструктура: MS SQL, Redis, RabbitMQ, S3 (RustFS), Seq и тестовый сайт
+#    Mac с Apple Silicon: образ SQL Server только для amd64 и требует Rosetta в Docker
+#    (Settings → General → «Use Rosetta»). Без неё в .env: MSSQL_IMAGE=mcr.microsoft.com/azure-sql-edge:latest
 docker compose up -d
 # С тестовым AD (Samba):
 docker compose --profile ad up -d
@@ -54,10 +57,16 @@ dotnet run --project src/Relayo.Public
 
 # 5. Админка
 cd web/admin && npm install && npm run dev
+
+# 6. Шлюз WhatsApp (если нужна переписка в WhatsApp; ключ — WHATSAPP_GATEWAY_KEY в .env)
+cd src/Relayo.WhatsApp && npm install && npm run dev
 ```
 
 Админка: http://localhost:5173, вход `admin` и пароль из `BOOTSTRAP_ADMIN_PASSWORD`.
-Администратор создаётся при первом запуске, если в БД ещё нет пользователей.
+Администратор создаётся при первом запуске, если в БД ещё нет пользователей. Базу `relayo` внутренний сервис
+создаёт сам; все миграции собраны в одну (`Initial`).
+
+Запрос к БД из терминала: `node tools/checks/db.cjs "SELECT TOP 5 number, status FROM tickets ORDER BY number DESC"`.
 
 ## Проверка виджета
 
@@ -81,6 +90,15 @@ cd web/admin && npm install && npm run dev
 После изменений в `web/widget` пересоберите виджет: `npm run build` (или `npm run watch`).
 После изменений в `tools/TestSite` пересоберите контейнер: `docker compose up -d --build test-site`.
 
+## Проверка файлов
+
+1. Откройте тестовый сайт и чат виджета. Нажмите скрепку или перетащите файл в окно чата, напишите текст и отправьте.
+2. В админке файл виден в переписке: картинки — превью, остальное — ссылка на скачивание. Файл лежит в S3
+   (http://localhost:9001, бакет `relayo-attachments`), ссылки временные (`S3_PRESIGNED_URL_MINUTES`).
+3. Ответьте с файлом: скрепка под полем ответа или перетаскивание. Файл придёт в виджет (и в Telegram, если клиент там).
+4. Лимиты — `ATTACHMENTS_MAX_SIZE_MB` и `ATTACHMENTS_ALLOWED_TYPES` в `.env`; у виджета файлы можно выключить
+   («Channels → виджет → Allow attachments», затем «Publish»).
+
 ## Проверка перехода в Telegram
 
 1. Создайте бота у [@BotFather](https://t.me/BotFather) и подключите его в админке:
@@ -97,6 +115,22 @@ cd web/admin && npm install && npm run dev
 
 В бою используется `TELEGRAM_UPDATES_MODE=webhook`: тогда `PUBLIC_BASE_URL` должен быть публичным HTTPS-адресом,
 а внутреннему сервису нужен исходящий доступ к `api.telegram.org` (или `TELEGRAM_PROXY_URL`).
+
+## Проверка WhatsApp
+
+1. Запустите шлюз (шаг 6 выше). В `.env` должны быть `WHATSAPP_GATEWAY_URL=http://localhost:5400` и `WHATSAPP_GATEWAY_KEY`.
+2. В админке: «Channels → Add channel → WhatsApp», режим «QR connection», сохраните. Появится QR-код.
+3. На телефоне с номером, который будет отвечать клиентам: WhatsApp → Настройки → Связанные устройства →
+   Привязка устройства, отсканируйте код. Страница покажет «Connected» и номер. Лучше взять отдельный номер,
+   а не личный: шлюз работает по неофициальному протоколу WhatsApp Web (см. риски в docs/deployment.md).
+4. Напишите на этот номер с другого телефона: в Relayo появится тикет с меткой WhatsApp. Ответ из админки придёт
+   в WhatsApp с псевдонимом оператора в первой строке.
+5. Переход из виджета: выберите номер в пункте WhatsApp виджета («Настройка пунктов»), опубликуйте виджет,
+   напишите в виджет на тестовом сайте и нажмите зелёную кнопку WhatsApp. В WhatsApp подставится «My code: …» —
+   отправьте его, и переписка продолжится в том же чате тикета.
+
+Без телефона: `node tools/checks/whatsapp-gateway.cjs` проверяет всё это с поддельным шлюзом (настоящий на это время
+остановить: порт 5400).
 
 ## Полезные адреса
 

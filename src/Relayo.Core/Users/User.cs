@@ -91,6 +91,11 @@ public sealed class User
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>id сотрудника в Usedesk: по нему перенесённые сообщения находят автора.</summary>
+    public int? UsedeskId { get; private set; }
+
+    public void LinkUsedesk(int usedeskId) => UsedeskId = usedeskId;
+
     public static User CreateLocal(string login, string fullName, UserRole role, string? alias, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(login);

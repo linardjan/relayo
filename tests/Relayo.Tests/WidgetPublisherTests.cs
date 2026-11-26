@@ -9,7 +9,8 @@ public class WidgetPublisherTests
     [Fact]
     public void Widget_file_carries_settings_that_survive_special_characters()
     {
-        var publisher = new WidgetPublisher(null!, null!, new WidgetPublishingOptions("https://chat.example.com/", "https://chat.example.com/w"), TimeProvider.System);
+        var publisher = new WidgetPublisher(null!, null!, new WidgetPublishingOptions("https://chat.example.com/", "https://chat.example.com/w"),
+            new Relayo.Core.Files.AttachmentLimits(1024, []), TimeProvider.System);
         var snapshot = new WidgetSnapshot("w1", "Поддержка \"24/7\" </script> \\ ✓", "Привет!\nКак дела?", "#1677ff", "right",
             "signed_token", "ru", 30, "SupportBot");
 

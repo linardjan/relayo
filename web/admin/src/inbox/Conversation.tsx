@@ -1,9 +1,10 @@
-import { Alert, App as AntApp, Button, Empty, Input, Popover, Tabs, Tooltip } from 'antd'
-import { CheckCircleOutlined, PaperClipOutlined, RobotOutlined, SmileOutlined, SnippetsOutlined, WarningOutlined } from '@ant-design/icons'
+import { Alert, App as AntApp, Button, Empty, Image, Input, Popover, Tabs, Tag, Tooltip } from 'antd'
+import { CheckCircleOutlined, EyeInvisibleOutlined, FileOutlined, PaperClipOutlined, RobotOutlined, SmileOutlined, SnippetsOutlined, WarningOutlined } from '@ant-design/icons'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../api/client'
-import { ticketsApi, type Channel, type ChatView, type OperatorMessage, type TicketDetails } from '../api/tickets'
+import { ticketsApi, type Attachment, type Channel, type ChatView, type OperatorMessage, type TicketDetails } from '../api/tickets'
+import { errorText } from '../settings/errors'
 import { useAuth } from '../auth/AuthContext'
 import { ChannelIcon, PersonAvatar, formatTime, useDayLabel, useDuration, useNow } from './visuals'
 
@@ -46,13 +47,15 @@ export function Conversation({ details, onAliasRequired }: { details: TicketDeta
       {chat && !isClosed && (
         <Composer
           replyChannel={chat.replyChannel}
-          onSend={async (text) => {
+          onSend={async (mode, text, files) => {
             try {
-              await ticketsApi.reply(ticket.id, chat.id, text)
+              if (mode === 'comment') await ticketsApi.note(ticket.id, chat.id, text, files)
+              else await ticketsApi.reply(ticket.id, chat.id, text, files)
               return true
             } catch (e) {
               if (e instanceof ApiError && e.code === 'alias_required') onAliasRequired()
-              else message.error(t('ticket.sendFailed'))
+              // Причину (размер, тип файла, недоступно хранилище) сервер сообщает текстом.
+              else message.error(errorText(e, t(mode === 'comment' ? 'ticket.noteFailed' : 'ticket.sendFailed')))
               return false
             }
           }}
@@ -75,8 +78,8 @@ function Messages({ chat, clientLabel, clientSeed, awaitingReply }: { chat?: Cha
 
   if (!chat) return <Empty style={{ flex: 1, paddingTop: 96 }} />
 
-  // Клиент ждёт ответа, если последнее сообщение — от него. Автоответ правила ответом человека не считается.
-  const last = [...chat.messages].reverse().find((m) => m.author !== 'System' && !m.automated)
+  // Клиент ждёт ответа, если последнее сообщение — от него. Автоответ правила и заметка ответом не считаются.
+  const last = [...chat.messages].reverse().find((m) => m.author !== 'System' && !m.automated && m.visibility !== 'Internal')
   const waitingSince = awaitingReply && last?.author === 'Client' ? last.createdAt : null
 
   return (
@@ -117,9 +120,10 @@ function MessageItem({ message: m, clientLabel, clientSeed }: { message: Operato
   }
 
   const fromClient = m.author === 'Client'
+  const internal = m.visibility === 'Internal'
   const name = fromClient ? clientLabel : (m.authorName ?? t('ticket.operator'))
   return (
-    <div className={`msg ${fromClient ? 'from-client' : 'from-operator'}${m.automated ? ' automated' : ''}`}>
+    <div className={`msg ${fromClient ? 'from-client' : 'from-operator'}${m.automated ? ' automated' : ''}${internal ? ' internal' : ''}`}>
       {m.automated ? (
         <span className="msg-robot">
           <RobotOutlined />
@@ -131,55 +135,139 @@ function MessageItem({ message: m, clientLabel, clientSeed }: { message: Operato
         <div className="msg-head">
           <span className="msg-name">{name}</span>
           <span className="msg-time">{formatTime(m.createdAt)}</span>
-          {m.channel !== 'Widget' && <ChannelIcon channel={m.channel} />}
+          {internal ? (
+            <span className="msg-note-label">
+              <EyeInvisibleOutlined /> {t('ticket.note')}
+            </span>
+          ) : (
+            m.channel !== 'Widget' && <ChannelIcon channel={m.channel} />
+          )}
         </div>
-        <div className="msg-text">{m.text}</div>
+        <MessageAttachments items={m.attachments} />
+        {m.text && <div className="msg-text">{m.text}</div>}
       </div>
     </div>
   )
 }
 
+/** Картинки — превью с увеличением, остальное — ссылки на скачивание с размером. */
+function MessageAttachments({ items }: { items?: Attachment[] | null }) {
+  if (!items?.length) return null
+  const images = items.filter((a) => a.url && a.contentType.startsWith('image/'))
+  const files = items.filter((a) => !images.includes(a))
+  return (
+    <div className="msg-attachments">
+      {images.length > 0 && (
+        <Image.PreviewGroup>
+          {images.map((a) => (
+            <Image key={a.id} src={a.url!} alt={a.fileName} width={140} height={100} style={{ objectFit: 'cover', borderRadius: 6 }} />
+          ))}
+        </Image.PreviewGroup>
+      )}
+      {files.map((a) => (
+        <a key={a.id} className="msg-file" href={a.url ?? undefined} target="_blank" rel="noreferrer" download={a.fileName}>
+          <FileOutlined /> <span className="msg-file-name">{a.fileName}</span> <span className="msg-file-size">{formatSize(a.size)}</span>
+        </a>
+      ))}
+    </div>
+  )
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 const emojis = ['🙂', '😊', '😉', '🙏', '👍', '👌', '👋', '🤝', '✅', '❗', '⏳', '🎉', '😔', '🤔', '💡', '📎', '📞', '✉️', '❤️', '🔥']
 
-function Composer({ onSend, replyChannel }: { onSend: (text: string) => Promise<boolean>; replyChannel: Channel }) {
+/** Не больше файлов в одном сообщении: столько же принимает сервер. */
+const MAX_FILES = 10
+
+type ComposerMode = 'message' | 'comment'
+
+function Composer({
+  onSend,
+  replyChannel,
+}: {
+  onSend: (mode: ComposerMode, text: string, files: File[]) => Promise<boolean>
+  replyChannel: Channel
+}) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const [mode, setMode] = useState<ComposerMode>('message')
+  const isNote = mode === 'comment'
   const [text, setText] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [dragging, setDragging] = useState(false)
   const [sending, setSending] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const canSend = !!text.trim() || files.length > 0
+
+  const addFiles = (list: FileList | null) => {
+    if (list) setFiles((current) => [...current, ...Array.from(list)].slice(0, MAX_FILES))
+  }
 
   const send = async () => {
-    if (!text.trim() || sending) return
+    if (!canSend || sending) return
     setSending(true)
-    if (await onSend(text)) setText('')
+    if (await onSend(mode, text, files)) {
+      setText('')
+      setFiles([])
+    }
     setSending(false)
   }
 
   return (
-    <div className="composer">
+    <div
+      className={`composer${dragging ? ' dragging' : ''}${isNote ? ' note' : ''}`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        addFiles(e.dataTransfer.files)
+      }}
+    >
+      {dragging && <div className="composer-drop">{t('ticket.dropFiles')}</div>}
       <div className="composer-top">
         <Tabs
           size="small"
-          activeKey="message"
+          activeKey={mode}
+          onChange={(key) => setMode(key as ComposerMode)}
           tabBarStyle={{ marginBottom: 0 }}
           items={[
             { key: 'message', label: t('ticket.tabMessage') },
-            { key: 'comment', label: <Tooltip title={t('common.comingSoon')}>{t('ticket.tabComment')}</Tooltip>, disabled: true },
+            { key: 'comment', label: t('ticket.tabComment') },
           ]}
         />
-        {/* Куда уйдёт ответ и от чьего имени его увидит клиент. */}
-        <div className="composer-channel">
-          <ChannelIcon channel={replyChannel} />
-          {t('ticket.replyVia', { channel: t(`inbox.channel.${replyChannel}`) })}
-          {user?.alias && <span className="composer-alias">· {t('ticket.asAlias', { alias: user.alias })}</span>}
-        </div>
+        {/* Куда уйдёт ответ и от чьего имени его увидит клиент; заметку клиент не увидит вовсе. */}
+        {isNote ? (
+          <div className="composer-channel">
+            <EyeInvisibleOutlined />
+            {t('ticket.noteVisibility')}
+          </div>
+        ) : (
+          <div className="composer-channel">
+            <ChannelIcon channel={replyChannel} />
+            {t('ticket.replyVia', { channel: t(`inbox.channel.${replyChannel}`) })}
+            {user?.alias && <span className="composer-alias">· {t('ticket.asAlias', { alias: user.alias })}</span>}
+          </div>
+        )}
       </div>
       <Input.TextArea
         variant="borderless"
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoSize={{ minRows: 2, maxRows: 8 }}
-        placeholder={t('ticket.replyPlaceholder')}
+        placeholder={t(isNote ? 'ticket.notePlaceholder' : 'ticket.replyPlaceholder')}
         maxLength={10000}
         onPressEnter={(e) => {
           if (!e.shiftKey) {
@@ -188,11 +276,30 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string) => Promise<
           }
         }}
       />
+      {files.length > 0 && (
+        <div className="composer-files">
+          {files.map((f, i) => (
+            <Tag key={`${f.name}-${i}`} icon={<PaperClipOutlined />} closable onClose={() => setFiles(files.filter((_, j) => j !== i))}>
+              {f.name} · {formatSize(f.size)}
+            </Tag>
+          ))}
+        </div>
+      )}
       <div className="composer-bottom">
         <div>
-          <Tooltip title={`${t('ticket.attach')} · ${t('common.comingSoon')}`}>
-            <Button type="text" icon={<PaperClipOutlined />} disabled />
+          <Tooltip title={t('ticket.attachHelp')}>
+            <Button type="text" icon={<PaperClipOutlined />} aria-label={t('ticket.attach')} onClick={() => fileInput.current?.click()} />
           </Tooltip>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              addFiles(e.target.files)
+              e.target.value = ''
+            }}
+          />
           <Tooltip title={`${t('ticket.templates')} · ${t('common.comingSoon')}`}>
             <Button type="text" icon={<SnippetsOutlined />} disabled />
           </Tooltip>
@@ -221,8 +328,8 @@ function Composer({ onSend, replyChannel }: { onSend: (text: string) => Promise<
             <Button type="text" icon={<SmileOutlined />} aria-label={t('ticket.emoji')} />
           </Popover>
         </div>
-        <Button type="primary" onClick={send} loading={sending} disabled={!text.trim()}>
-          {t('ticket.send')}
+        <Button type="primary" onClick={send} loading={sending} disabled={!canSend}>
+          {t(isNote ? 'ticket.addNote' : 'ticket.send')}
         </Button>
       </div>
     </div>

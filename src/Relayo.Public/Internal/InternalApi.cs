@@ -31,6 +31,7 @@ public sealed class WidgetApiException(int statusCode, string code, string messa
 public sealed class InternalApi(InternalGateway.InternalGatewayClient client)
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan UploadTimeout = TimeSpan.FromSeconds(60);
 
     public Task<AllowedOrigins> GetAllowedOriginsAsync(CancellationToken ct) =>
         Call(() => client.GetAllowedOriginsAsync(new GetAllowedOriginsRequest(), deadline: Deadline(), cancellationToken: ct).ResponseAsync);
@@ -50,8 +51,11 @@ public sealed class InternalApi(InternalGateway.InternalGatewayClient client)
     public Task<VisitorSession> IdentifyAsync(IdentifyRequest request, CancellationToken ct) =>
         Call(() => client.IdentifyAsync(request, deadline: Deadline(), cancellationToken: ct).ResponseAsync);
 
+    /// <summary>С файлами вызов идёт дольше: внутренний сервис ещё кладёт их в S3.</summary>
     public Task<WidgetMessage> SendAsync(SendVisitorMessageRequest request, CancellationToken ct) =>
-        Call(() => client.SendVisitorMessageAsync(request, deadline: Deadline(), cancellationToken: ct).ResponseAsync);
+        Call(() => client.SendVisitorMessageAsync(request,
+            deadline: request.Files.Count == 0 ? Deadline() : DateTime.UtcNow.Add(UploadTimeout),
+            cancellationToken: ct).ResponseAsync);
 
     public Task<WidgetHistory> GetHistoryAsync(string widgetId, string visitorToken, CancellationToken ct) =>
         Call(() => client.GetVisitorHistoryAsync(new VisitorRequest { WidgetId = widgetId, VisitorToken = visitorToken },
@@ -59,6 +63,10 @@ public sealed class InternalApi(InternalGateway.InternalGatewayClient client)
 
     public Task<MessengerLink> CreateTelegramLinkAsync(string widgetId, string visitorToken, CancellationToken ct) =>
         Call(() => client.CreateTelegramLinkAsync(new VisitorRequest { WidgetId = widgetId, VisitorToken = visitorToken },
+            deadline: Deadline(), cancellationToken: ct).ResponseAsync);
+
+    public Task<MessengerLink> CreateWhatsAppLinkAsync(string widgetId, string visitorToken, CancellationToken ct) =>
+        Call(() => client.CreateWhatsAppLinkAsync(new VisitorRequest { WidgetId = widgetId, VisitorToken = visitorToken },
             deadline: Deadline(), cancellationToken: ct).ResponseAsync);
 
     public Task<TelegramUpdateReply> HandleTelegramUpdateAsync(TelegramUpdateRequest request, CancellationToken ct) =>

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Relayo.Core.Clients;
 using Relayo.Core.Data;
+using Relayo.Core.Files;
 using Relayo.Core.Users;
 
 namespace Relayo.Core.Conversations;
@@ -18,7 +19,14 @@ public sealed record TicketSummary(
     DateTimeOffset CreatedAt,
     DateTimeOffset LastMessageAt,
     string LastMessagePreview,
-    Channel LastClientChannel);
+    Channel LastClientChannel,
+    string? Subject,
+    TicketSource Source,
+    string? SourceChannel,
+    Guid? GroupId,
+    string? GroupName);
+
+public sealed record GroupOption(Guid Id, string Name);
 
 public sealed record ClientCard(Guid Id, string Label, string SiteCode, string? ExternalClientId, string? Locale,
     bool IsVerified);
@@ -32,26 +40,40 @@ public sealed record OperatorMessageView(
     string Text,
     DateTimeOffset CreatedAt,
     Channel Channel,
-    bool Automated = false);
+    bool Automated = false,
+    IReadOnlyList<AttachmentView>? Attachments = null,
+    MessageVisibility Visibility = MessageVisibility.Public);
 
 /// <param name="ReplyChannel">Куда уйдёт ответ оператора: в канал, из которого клиент написал последним (п. 3.2 ТЗ).</param>
+/// <param name="PageUrl">Страница сайта, с которой клиент начал писать в виджет.</param>
 public sealed record ChatView(Guid Id, bool IsVerified, DateTimeOffset CreatedAt, Channel ReplyChannel,
-    IReadOnlyList<OperatorMessageView> Messages);
+    IReadOnlyList<OperatorMessageView> Messages, string? PageUrl = null);
 
 public sealed record TicketDetails(TicketSummary Ticket, ClientCard Client, IReadOnlyList<ChatView> Chats);
 
 /// <summary>Ответ нужно доставить в Telegram: через этого бота в этот чат. Без псевдонима — автоответ.</summary>
-public sealed record TelegramDelivery(Guid BotId, long ChatId, string? OperatorAlias, string Text);
+public sealed record TelegramDelivery(Guid BotId, long ChatId, string? OperatorAlias, string Text,
+    IReadOnlyList<StoredFile>? Files = null);
+
+/// <summary>Ответ нужно доставить в WhatsApp: через этот номер компании в этот чат. Без псевдонима — автоответ.</summary>
+public sealed record WhatsAppDelivery(Guid ChannelId, string ChatJid, string? OperatorAlias, string Text,
+    IReadOnlyList<StoredFile>? Files = null);
+
+/// <summary>Куда уходит ответ: канал и, для мессенджеров, через что и в какой чат.</summary>
+public sealed record ReplyRoute(Channel Channel, (Guid BotId, long ChatId)? Telegram = null,
+    (Guid ChannelId, string ChatJid)? WhatsApp = null);
 
 public sealed record OperatorReply(
     OperatorMessageView Message,
     MessageView WidgetMessage,
     TicketSummary Ticket,
     WidgetRecipients Recipients,
-    TelegramDelivery? Telegram);
+    TelegramDelivery? Telegram,
+    WhatsAppDelivery? WhatsApp = null);
 
 /// <summary>Работа операторов с тикетами.</summary>
-public sealed class TicketService(RelayoDbContext db, WidgetConversationService widgets, TimeProvider time)
+public sealed class TicketService(RelayoDbContext db, WidgetConversationService widgets, AttachmentService attachments,
+    TimeProvider time)
 {
     /// <summary>Подпись автоответов правил в админке.</summary>
     public const string AutoReplyName = "Auto-reply";
@@ -91,10 +113,13 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
                 orderby m.CreatedAt
                 select new OperatorMessageView(m.Id, m.ChatId, m.Author,
                     u == null ? (m.Author == MessageAuthor.Operator ? AutoReplyName : null) : u.FullName, m.Text,
-                    m.CreatedAt, m.Channel, m.Author == MessageAuthor.Operator && m.OperatorId == null))
+                    m.CreatedAt, m.Channel, m.Author == MessageAuthor.Operator && m.OperatorId == null, null,
+                    m.Visibility))
             .Take(MessagesPerTicketLimit)
             .ToListAsync(ct);
 
+        var files = await attachments.ForChatsAsync(chatIds, since: null, ct);
+        messages = messages.Select(m => files.Contains(m.Id) ? m with { Attachments = files[m.Id].ToList() } : m).ToList();
         var byChat = messages.ToLookup(m => m.ChatId);
         var summary = ToSummary(row);
         return new TicketDetails(
@@ -103,14 +128,14 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
                 row.ClientVerified),
             chats.Select(c => new ChatView(c.Id, c.IsVerified, c.CreatedAt,
                 byChat[c.Id].LastOrDefault(m => m.Author == MessageAuthor.Client)?.Channel ?? Channel.Widget,
-                byChat[c.Id].ToList())).ToList());
+                byChat[c.Id].ToList(), c.PageUrl)).ToList());
     }
 
     public async Task<OperatorReply> ReplyAsync(Guid ticketId, Guid chatId, Guid operatorId, string text,
-        CancellationToken ct)
+        IReadOnlyList<FileUpload> uploads, CancellationToken ct)
     {
         text = text.Trim();
-        if (text.Length is 0 or > Message.TextMaxLength)
+        if (text.Length > Message.TextMaxLength || (text.Length == 0 && uploads.Count == 0))
             throw new DomainException(ErrorCodes.InvalidInput, "Message is empty or too long");
 
         var user = await db.Users.AsNoTracking().SingleAsync(u => u.Id == operatorId, ct);
@@ -124,31 +149,80 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         var chat = ticket.Chats.SingleOrDefault(c => c.Id == chatId)
                    ?? throw new DomainException(ErrorCodes.ChatNotFound, "Chat not found in this ticket");
 
-        var (channel, route) = await ReplyRouteAsync(chat.Id, ct);
-        var telegram = route is { } r ? new TelegramDelivery(r.BotId, r.ChatId, user.Alias!, text) : null;
+        var route = await ReplyRouteAsync(chat.Id, ct);
+        var channel = route.Channel;
+        var files = await attachments.StoreAsync(uploads, ct);
+        var telegram = route.Telegram is { } r ? new TelegramDelivery(r.BotId, r.ChatId, user.Alias!, text, files) : null;
+        var whatsApp = route.WhatsApp is { } w ? new WhatsAppDelivery(w.ChannelId, w.ChatJid, user.Alias!, text, files) : null;
 
         var now = time.GetUtcNow();
         var message = Message.FromOperator(chat, operatorId, text, channel, now);
         db.Messages.Add(message);
+        var views = attachments.Attach(message, files);
         chat.OnMessage(now);
-        ticket.OnOperatorMessage(operatorId, text, now);
+        ticket.OnOperatorMessage(operatorId, AttachmentService.Preview(text, files), now);
         await db.SaveChangesAsync(ct);
 
         return new OperatorReply(
             new OperatorMessageView(message.Id, chat.Id, message.Author, user.FullName, message.Text, message.CreatedAt,
-                message.Channel),
-            WidgetConversationService.ToView(message, user.Alias),
+                message.Channel, Attachments: views),
+            WidgetConversationService.ToView(message, user.Alias, views),
             await GetSummaryAsync(ticketId, ct),
             await widgets.GetRecipientsAsync(chat, ct),
-            telegram);
+            telegram,
+            whatsApp);
+    }
+
+    /// <summary>
+    /// Внутренняя заметка: её видят только сотрудники. Клиенту ничего не уходит, статус и превью тикета не меняются,
+    /// поэтому псевдоним не нужен, а заметку можно оставить и в закрытом тикете.
+    /// </summary>
+    public async Task<OperatorMessageView> AddNoteAsync(Guid ticketId, Guid chatId, Guid operatorId, string text,
+        IReadOnlyList<FileUpload> uploads, CancellationToken ct)
+    {
+        text = text.Trim();
+        if (text.Length > Message.TextMaxLength || (text.Length == 0 && uploads.Count == 0))
+            throw new DomainException(ErrorCodes.InvalidInput, "Note is empty or too long");
+
+        var chat = await db.Chats.SingleOrDefaultAsync(c => c.Id == chatId && c.TicketId == ticketId, ct)
+                   ?? (await db.Tickets.AnyAsync(t => t.Id == ticketId, ct)
+                       ? throw new DomainException(ErrorCodes.ChatNotFound, "Chat not found in this ticket")
+                       : throw new DomainException(ErrorCodes.TicketNotFound, "Ticket not found"));
+        var user = await db.Users.AsNoTracking().SingleAsync(u => u.Id == operatorId, ct);
+
+        var files = await attachments.StoreAsync(uploads, ct);
+        var message = Message.Note(chat, operatorId, text, time.GetUtcNow());
+        db.Messages.Add(message);
+        var views = attachments.Attach(message, files);
+        await db.SaveChangesAsync(ct);
+
+        return new OperatorMessageView(message.Id, chat.Id, message.Author, user.FullName, message.Text,
+            message.CreatedAt, message.Channel, Attachments: views, Visibility: message.Visibility);
+    }
+
+    /// <summary>Группы, в очередь которых можно перевести тикет. Список нужен всем операторам, не только администраторам.</summary>
+    public async Task<IReadOnlyList<GroupOption>> ListGroupsAsync(CancellationToken ct) =>
+        await db.AgentGroups.AsNoTracking().OrderBy(g => g.Name).Select(g => new GroupOption(g.Id, g.Name)).ToListAsync(ct);
+
+    public async Task<TicketSummary> SetGroupAsync(Guid ticketId, Guid? groupId, CancellationToken ct)
+    {
+        var ticket = await db.Tickets.SingleOrDefaultAsync(t => t.Id == ticketId, ct)
+                     ?? throw new DomainException(ErrorCodes.TicketNotFound, "Ticket not found");
+        if (groupId is { } id && !await db.AgentGroups.AnyAsync(g => g.Id == id, ct))
+            throw new DomainException(ErrorCodes.GroupNotFound, "Group not found");
+        if (ticket.GroupId != groupId)
+        {
+            ticket.SetGroup(groupId, time.GetUtcNow());
+            await db.SaveChangesAsync(ct);
+        }
+        return await GetSummaryAsync(ticketId, ct);
     }
 
     /// <summary>
     /// Куда уходит ответ в чат: в канал, из которого клиент написал последним (п. 3.2 ТЗ).
-    /// Для Telegram — ещё бот и чат, через которые отправлять.
+    /// Для Telegram — ещё бот и чат, для WhatsApp — номер компании и чат, через которые отправлять.
     /// </summary>
-    internal async Task<(Channel Channel, (Guid BotId, long ChatId)? Telegram)> ReplyRouteAsync(Guid chatId,
-        CancellationToken ct)
+    internal async Task<ReplyRoute> ReplyRouteAsync(Guid chatId, CancellationToken ct)
     {
         var lastFromClient = await db.Messages.AsNoTracking()
             .Where(m => m.ChatId == chatId && m.Author == MessageAuthor.Client)
@@ -158,10 +232,21 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         if (lastFromClient is { Channel: Channel.Telegram, VisitorIdentityId: { } identityId })
         {
             var identity = await db.ClientIdentities.AsNoTracking().SingleOrDefaultAsync(i => i.Id == identityId, ct);
-            if (identity is not null && identity.TryGetTelegramChat(out var botId, out var telegramChatId))
-                return (Channel.Telegram, (botId, telegramChatId));
+            // Бота могли удалить или выключить: тогда ответ увидит только виджет.
+            if (identity is not null && identity.TryGetTelegramChat(out var botId, out var telegramChatId)
+                && await db.TelegramBots.AnyAsync(b => b.Id == botId && b.IsEnabled, ct))
+                return new ReplyRoute(Channel.Telegram, Telegram: (botId, telegramChatId));
         }
-        return (Channel.Widget, null);
+        if (lastFromClient is { Channel: Channel.WhatsApp, VisitorIdentityId: { } waIdentityId })
+        {
+            var identity = await db.ClientIdentities.AsNoTracking().SingleOrDefaultAsync(i => i.Id == waIdentityId, ct);
+            // Номер могли удалить, выключить или перевести в режим «только ссылка»: тогда ответ увидит только виджет.
+            if (identity is not null && identity.TryGetWhatsAppChat(out var channelId, out var jid)
+                && await db.WhatsAppChannels.AnyAsync(c => c.Id == channelId && c.IsEnabled
+                    && c.Mode == Channels.WhatsAppMode.Gateway, ct))
+                return new ReplyRoute(Channel.WhatsApp, WhatsApp: (channelId, jid));
+        }
+        return new ReplyRoute(Channel.Widget);
     }
 
     public async Task<TicketStatus?> GetStatusAsync(Guid ticketId, CancellationToken ct) =>
@@ -204,6 +289,8 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         join s in db.Sites on c.SiteId equals s.Id
         join u in db.Users on t.AssigneeId equals u.Id into assignees
         from u in assignees.DefaultIfEmpty()
+        join g in db.AgentGroups on t.GroupId equals g.Id into groups
+        from g in groups.DefaultIfEmpty()
         // Инициализатор свойств, а не конструктор: так EF может фильтровать и сортировать по полям строки.
         select new SummaryRow
         {
@@ -215,13 +302,15 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
             ClientVerified = c.IsVerified,
             SiteCode = s.Code,
             AssigneeName = u == null ? null : u.FullName,
+            GroupName = g == null ? null : g.Name,
         };
 
     private static TicketSummary ToSummary(SummaryRow r) => new(
         r.Ticket.Id, r.Ticket.Number, r.Ticket.Status, r.ClientId,
         ClientLabel(r.ClientId, r.ExternalClientId, r.DisplayName), r.ClientVerified, r.SiteCode,
         r.Ticket.AssigneeId, r.AssigneeName, r.Ticket.CreatedAt, r.Ticket.LastMessageAt, r.Ticket.LastMessagePreview,
-        r.Ticket.LastClientChannel);
+        r.Ticket.LastClientChannel, r.Ticket.Subject, r.Ticket.Source, r.Ticket.SourceChannel, r.Ticket.GroupId,
+        r.GroupName);
 
     internal static string ClientLabel(Guid clientId, string? externalClientId, string? displayName) =>
         externalClientId ?? displayName ?? $"Visitor {clientId.ToString("N")[^6..]}";
@@ -243,5 +332,7 @@ public sealed class TicketService(RelayoDbContext db, WidgetConversationService 
         public required string SiteCode { get; init; }
 
         public string? AssigneeName { get; init; }
+
+        public string? GroupName { get; init; }
     }
 }

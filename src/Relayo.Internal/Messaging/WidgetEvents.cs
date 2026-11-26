@@ -11,7 +11,8 @@ public sealed class WidgetEvents(IMessageBus bus)
         bus.PublishAsync(new WidgetMessagePublished(ToDto(message), recipients.VisitorIds, recipients.VerifiedClientId));
 
     public static WidgetMessageDto ToDto(MessageView m) => new(
-        m.Id, m.ChatId, AuthorCode(m.Author), m.AuthorName, m.Text, m.CreatedAt, m.ClientMessageId);
+        m.Id, m.ChatId, AuthorCode(m.Author), m.AuthorName, m.Text, m.CreatedAt, m.ClientMessageId,
+        m.Attachments?.Select(a => new WidgetAttachmentDto(a.Id, a.FileName, a.ContentType, a.Size, a.Url)).ToList());
 
     public static string AuthorCode(MessageAuthor author) => author switch
     {

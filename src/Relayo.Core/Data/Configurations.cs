@@ -18,13 +18,15 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.Role).HasConversion<string>().HasMaxLength(32);
         b.Property(u => u.Source).HasConversion<string>().HasMaxLength(32);
         b.HasIndex(u => u.AdObjectGuid).IsUnique();
+        b.HasIndex(u => u.UsedeskId).IsUnique().HasFilter("usedesk_id IS NOT NULL");
         b.Property(u => u.Email).HasMaxLength(User.EmailMaxLength);
         b.Property(u => u.Position).HasMaxLength(User.PositionMaxLength);
         b.Property(u => u.Phone).HasMaxLength(User.PhoneMaxLength);
         b.Property(u => u.Locale).HasMaxLength(16);
         b.Property(u => u.Status).HasConversion<string>().HasMaxLength(16);
-        // Группы сотрудника — массив uuid: их немного, читаются и пишутся вместе с сотрудником.
-        b.Property(u => u.GroupIds).HasColumnType("uuid[]");
+        // Группы сотрудника хранятся JSON-массивом: их немного, читаются и пишутся вместе с сотрудником.
+        // Поиск по ним (Contains) EF переводит в OPENJSON.
+        b.PrimitiveCollection(u => u.GroupIds);
         b.HasOne<AgentGroup>().WithMany().HasForeignKey(u => u.DefaultGroupId).OnDelete(DeleteBehavior.SetNull);
     }
 }

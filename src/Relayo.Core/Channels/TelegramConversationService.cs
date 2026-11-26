@@ -207,8 +207,7 @@ public sealed class TelegramConversationService(
         if (identity is null)
         {
             // Два первых сообщения подряд не должны создать двух клиентов.
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT pg_advisory_xact_lock(hashtextextended({"tg:" + bot.Id + ":" + sender.ChatId}, 0))", ct);
+            await db.LockAsync("tg:" + bot.Id + ":" + sender.ChatId, ct);
             identity = await FindIdentityAsync(bot, sender.ChatId, ct);
         }
         if (identity is null)

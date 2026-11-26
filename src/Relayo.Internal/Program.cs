@@ -12,6 +12,7 @@ using System.Net;
 using Relayo.Internal.Api;
 using Relayo.Internal.Automation;
 using Relayo.Internal.Channels.Telegram;
+using Relayo.Internal.Channels.WhatsApp;
 using Relayo.Internal.Configuration;
 using Relayo.Internal.Grpc;
 using Relayo.Internal.Hosting;
@@ -20,11 +21,13 @@ using Relayo.Internal.Realtime;
 using Relayo.Internal.Storage;
 using Relayo.Core.Sites;
 using Relayo.ServiceDefaults;
+using Relayo.ServiceDefaults.Redis;
+using StackExchange.Redis;
 using Serilog;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.ErrorHandling;
-using Wolverine.Postgresql;
+using Wolverine.SqlServer;
 using Wolverine.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,9 +45,13 @@ builder.WebHost.ConfigureKestrel(kestrel =>
 
 // Данные
 builder.Services.AddDbContextWithWolverineIntegration<RelayoDbContext>(
-    db => db.UseRelayoPostgres(settings.PostgresConnectionString));
-builder.Services.AddRelayoCore(settings.Jwt, settings.Database, settings.SecretsEncryptionKey, settings.ClientTokens);
+    db => db.UseRelayoSqlServer(settings.DbConnectionString));
+builder.Services.AddRelayoCore(settings.Jwt, settings.Database, settings.SecretsEncryptionKey, settings.ClientTokens,
+    settings.Attachments);
 builder.Services.AddScoped<WidgetEvents>();
+
+// Redis: несколько экземпляров делят realtime операторов, лимиты и опрос Telegram.
+builder.Services.AddRelayoRedis(settings.Redis, "relayo-internal");
 builder.Services.AddScoped<ConversationEvents>();
 builder.Services.AddScoped<AutomationEvents>();
 
@@ -77,14 +84,33 @@ builder.Services.AddScoped<TelegramOutbox>();
 builder.Services.AddScoped<TelegramUpdateProcessor>();
 builder.Services.AddScoped<TelegramBotSettingsService>();
 builder.Services.AddHostedService<TelegramUpdatesService>();
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<RelayoDbContext>("postgres", tags: [ServiceDefaultsExtensions.ReadyTag]);
 
-// Шина: RabbitMQ + outbox и inbox в PostgreSQL (схема wolverine)
+// WhatsApp: номера подключаются по QR-коду через шлюз src/Relayo.WhatsApp (необязателен).
+if (settings.WhatsAppGateway is { } whatsAppGateway)
+{
+    builder.Services.AddSingleton(whatsAppGateway);
+    builder.Services.AddHttpClient(WhatsAppGateway.HttpClientName, http =>
+    {
+        http.BaseAddress = new Uri(whatsAppGateway.Url.ToString().TrimEnd('/') + "/");
+        // Отправка файла: шлюз сначала загружает его на серверы WhatsApp.
+        http.Timeout = TimeSpan.FromSeconds(120);
+    });
+}
+builder.Services.AddSingleton<WhatsAppGateway>();
+builder.Services.AddScoped<Relayo.Internal.Channels.Email.EmailChannelChecker>();
+// Временный импорт из Usedesk (MySQL): подключение задаётся в админке.
+builder.Services.AddSingleton<Relayo.Internal.Usedesk.UsedeskSource>();
+builder.Services.AddScoped<Relayo.Internal.Usedesk.UsedeskImportService>();
+builder.Services.AddScoped<WhatsAppOutbox>();
+builder.Services.AddScoped<WhatsAppMessageProcessor>();
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<RelayoDbContext>("database", tags: [ServiceDefaultsExtensions.ReadyTag]);
+
+// Шина: RabbitMQ + outbox и inbox в MS SQL (схема wolverine)
 builder.Host.UseWolverine(opts =>
 {
     opts.ServiceName = "relayo-internal";
-    opts.PersistMessagesWithPostgresql(settings.PostgresConnectionString, "wolverine");
+    opts.PersistMessagesWithSqlServer(settings.DbConnectionString, "wolverine");
     opts.UseEntityFrameworkCoreTransactions();
     opts.Policies.AutoApplyTransactions();
     opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
@@ -105,11 +131,18 @@ builder.Host.UseWolverine(opts =>
     opts.PublishMessage<WidgetMessagePublished>().ToRabbitExchange(Queues.WidgetEvents,
         exchange => exchange.ExchangeType = ExchangeType.Fanout);
 
-    // Исходящие в Telegram: durable-очередь в PostgreSQL, лимиты Telegram соблюдает обработчик.
+    // Исходящие в Telegram: durable-очередь в БД, лимиты Telegram соблюдает обработчик.
     opts.PublishMessage<SendTelegramMessage>().ToLocalQueue(TelegramOutbox.QueueName);
     opts.LocalQueue(TelegramOutbox.QueueName).UseDurableInbox().MaximumParallelMessages(16);
 
-    // Правила: события и таймеры «не ответил N минут» (отложенные сообщения хранятся в PostgreSQL).
+    // Исходящие в WhatsApp: по одному сообщению за раз — быстрая отправка похожа на спам, и WhatsApp блокирует номер.
+    // Шлюз недоступен или номер не подключён — повтор с растущей паузой, затем очередь ошибок.
+    opts.PublishMessage<SendWhatsAppMessage>().ToLocalQueue(WhatsAppOutbox.QueueName);
+    opts.LocalQueue(WhatsAppOutbox.QueueName).UseDurableInbox().MaximumParallelMessages(1);
+    opts.OnException<WhatsAppRetryException>().RetryWithCooldown(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30));
+
+    // Правила: события и таймеры «не ответил N минут» (отложенные сообщения хранятся в БД).
     opts.PublishMessage<RuleEventOccurred>().ToLocalQueue(AutomationEvents.QueueName);
     opts.PublishMessage<RuleTimerElapsed>().ToLocalQueue(AutomationEvents.QueueName);
     opts.LocalQueue(AutomationEvents.QueueName).UseDurableInbox().MaximumParallelMessages(4);
@@ -140,27 +173,47 @@ builder.Services
 builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(null)
     .AddPolicy(SettingsEndpoints.AdminPolicy, p => p.RequireRole(nameof(Relayo.Core.Users.UserRole.Admin)));
+// 10 попыток входа в минуту с адреса: с Redis — на все экземпляры вместе.
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    o.AddPolicy(AuthEndpoints.LoginRateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
-        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+    o.AddPolicy(AuthEndpoints.LoginRateLimitPolicy, http => RelayoRateLimits.FixedWindow(
+        http.RequestServices.GetService<IConnectionMultiplexer>(),
+        http.RequestServices.GetRequiredService<ILogger<RedisFixedWindowRateLimiter>>(),
+        "login:" + (http.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
+        permitLimit: 10, TimeSpan.FromMinutes(1)));
 });
 
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 // Realtime для админки
-builder.Services.AddSignalR()
+var signalR = builder.Services.AddSignalR()
     .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+// Backplane: событие, отправленное одним экземпляром, получают операторы, подключённые к любому.
+if (settings.Redis is { } redis)
+    signalR.AddStackExchangeRedis(o =>
+    {
+        o.Configuration = redis.ToOptions("relayo-internal-signalr");
+        o.Configuration.ChannelPrefix = RedisChannel.Literal(RedisSettings.KeyPrefix + "signalr");
+    });
 builder.Services.AddSingleton<OperatorNotifier>();
 
 // gRPC для публичного сервиса
 builder.Services.AddSingleton<InternalKeyInterceptor>();
-builder.Services.AddGrpc(o => o.Interceptors.Add<InternalKeyInterceptor>());
+builder.Services.AddGrpc(o =>
+{
+    o.Interceptors.Add<InternalKeyInterceptor>();
+    // Публичный сервис передаёт вложения посетителей прямо в вызове: лимит — размер файлов плюс запас.
+    o.MaxReceiveMessageSize = (int)Math.Min(int.MaxValue, settings.Attachments.MaxBytes + 1024 * 1024);
+});
 
 var app = builder.Build();
+
+// Базы может ещё не быть (первый запуск): создаём её до старта Wolverine и миграций.
+if (settings.Database.MigrateOnStart)
+    await DatabaseBootstrap.EnsureDatabaseExistsAsync(settings.DbConnectionString,
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Relayo.Database"), CancellationToken.None);
 
 // За reverse proxy: адрес клиента и схема из X-Forwarded-* (только от TRUSTED_PROXIES).
 app.UseRelayoForwardedHeaders();
@@ -185,6 +238,8 @@ app.MapGroup("/api")
     .MapClientEndpoints()
     .MapSettingsEndpoints()
     .MapAutomationEndpoints()
+    .RequireLocalPort(settings.HttpPort);
+app.MapWhatsAppGatewayEndpoints()
     .RequireLocalPort(settings.HttpPort);
 app.MapHub<OperatorHub>(OperatorHub.Path)
     .RequireLocalPort(settings.HttpPort);

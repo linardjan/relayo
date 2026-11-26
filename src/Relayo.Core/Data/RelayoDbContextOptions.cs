@@ -5,17 +5,19 @@ namespace Relayo.Core.Data;
 
 public static class RelayoDbContextOptions
 {
-    /// <summary>Общая настройка контекста: PostgreSQL и имена таблиц и колонок в snake_case.</summary>
-    public static DbContextOptionsBuilder UseRelayoPostgres(this DbContextOptionsBuilder builder, string connectionString) =>
+    /// <summary>Общая настройка контекста: MS SQL Server и имена таблиц и колонок в snake_case.</summary>
+    public static DbContextOptionsBuilder UseRelayoSqlServer(this DbContextOptionsBuilder builder, string connectionString) =>
         builder
-            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history"))
+            // Повторы при сбоях (EnableRetryOnFailure) не включаем: сервисы сами открывают транзакции,
+            // а стратегия повторов с ними несовместима.
+            .UseSqlServer(connectionString, sql => sql.MigrationsHistoryTable("__ef_migrations_history"))
             .UseSnakeCaseNamingConvention();
 
     /// <summary>Отдельные параметры контекста без интеграций хоста: для миграций и dotnet ef.</summary>
     public static DbContextOptions<RelayoDbContext> Standalone(string connectionString)
     {
         var builder = new DbContextOptionsBuilder<RelayoDbContext>();
-        builder.UseRelayoPostgres(connectionString);
+        builder.UseRelayoSqlServer(connectionString);
         return builder.Options;
     }
 }
@@ -26,5 +28,5 @@ public static class RelayoDbContextOptions
 internal sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<RelayoDbContext>
 {
     public RelayoDbContext CreateDbContext(string[] args) =>
-        new(RelayoDbContextOptions.Standalone("Host=localhost;Database=relayo_design_time"));
+        new(RelayoDbContextOptions.Standalone("Server=localhost;Database=relayo_design_time;Integrated Security=true"));
 }

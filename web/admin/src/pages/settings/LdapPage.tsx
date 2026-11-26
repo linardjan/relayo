@@ -1,12 +1,11 @@
 import { App as AntApp, Button, Form, Input, InputNumber, Select, Space, Spin, Switch, Typography } from 'antd'
-import { CheckCircleFilled, CloseCircleFilled, MinusCircleFilled } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Role } from '../../api/client'
 import { settingsApi, type DirectoryProvider, type LdapSecurity, type LdapSettings, type LdapSettingsInput } from '../../api/settings'
-import { formatDateTime } from '../../format'
 import { Page, SectionCard, SettingsForm } from '../../layout/Page'
+import { StatusBox } from '../../layout/StatusBox'
 import { errorText } from '../../settings/errors'
 
 const roles: Role[] = ['Operator', 'Supervisor', 'Admin']
@@ -173,18 +172,5 @@ export function LdapPage() {
         </SettingsForm>
       </SectionCard>
     </Page>
-  )
-}
-
-function StatusBox({ ok, at, text }: { ok: boolean | null; at: string | null; text: string }) {
-  const kind = ok === null ? 'none' : ok ? 'ok' : 'error'
-  return (
-    <div className={`status-box ${kind}`}>
-      {kind === 'ok' ? <CheckCircleFilled /> : kind === 'error' ? <CloseCircleFilled /> : <MinusCircleFilled />}
-      <div>
-        <div>{text}</div>
-        {at && <div className="status-box-time">{formatDateTime(at)}</div>}
-      </div>
-    </div>
   )
 }

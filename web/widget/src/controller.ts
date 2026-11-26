@@ -4,10 +4,14 @@ import { Api, WidgetApiError, type Message, type Session, type WidgetConfig } fr
 /** Ссылку обновляем заранее, пока до конца её жизни (10 минут) остаётся больше этого. */
 const LINK_REFRESH_BEFORE_MS = 3 * 60_000
 const LINK_CHECK_INTERVAL_MS = 60_000
+/** Ссылки на файлы временные (S3_PRESIGNED_URL_MINUTES): пока окно открыто, история обновляется заранее. */
+const HISTORY_REFRESH_MS = 10 * 60_000
 
 export interface ViewMessage extends Message {
   /** Сообщение отправляется или не отправилось. */
   pending?: 'sending' | 'failed'
+  /** Почему не отправилось: код ошибки сервера (attachment_too_large и т. п.). */
+  errorCode?: string
 }
 
 export interface State {
@@ -30,6 +34,8 @@ type EventName = 'ready' | 'open' | 'close' | 'message' | 'unreadChanged'
 /** Куда открыть: без аргумента — окно чата, иначе мессенджер. */
 export type OpenTarget = 'chat' | 'tg' | 'telegram' | 'whatsapp' | 'wa'
 
+type MessengerKind = 'tg' | 'wa'
+
 /**
  * Состояние и поведение виджета. UI подписывается на изменения через subscribe().
  *
@@ -51,9 +57,13 @@ export class Controller {
   private appliedIdentity: string | null = null
   private product: string | null = null
   private locale: string | null = null
-  private telegramLink: { url: string; expiresAt: number } | null = null
-  private telegramLinkPromise: Promise<string> | null = null
+  /** Заранее полученные одноразовые ссылки в мессенджеры. */
+  private links: Record<MessengerKind, { url: string; expiresAt: number } | null> = { tg: null, wa: null }
+  private linkPromises: Record<MessengerKind, Promise<string> | null> = { tg: null, wa: null }
   private linkTimer: ReturnType<typeof setInterval> | null = null
+  private historyTimer: ReturnType<typeof setInterval> | null = null
+  /** Файлы неотправленных сообщений: нужны для повторной отправки. */
+  private readonly pendingFiles = new Map<string, File[]>()
 
   constructor(
     private readonly baseUrl: string,
@@ -87,15 +97,13 @@ export class Controller {
 
   /**
    * Relayo.open() — окно чата; Relayo.open('tg') — Telegram; Relayo.open('whatsapp') — WhatsApp.
-   * Мессенджер открывается с одноразовой ссылкой, и переписка продолжится в том же чате.
+   * Telegram открывается с одноразовой ссылкой, и переписка продолжится в том же чате;
+   * WhatsApp — чат с номером канала (wa.me/<номер>).
    */
   open(target?: OpenTarget): void {
     const where = typeof target === 'string' ? target.toLowerCase() : 'chat'
     if (where === 'tg' || where === 'telegram') return this.openTelegram()
-    if (where === 'whatsapp' || where === 'wa') {
-      console.warn('[Relayo] WhatsApp is not connected to this widget yet.')
-      return
-    }
+    if (where === 'whatsapp' || where === 'wa') return this.openWhatsApp()
     if (where !== 'chat') {
       console.warn(`[Relayo] Unknown open target "${String(target)}". Use Relayo.open(), Relayo.open('tg') or Relayo.open('whatsapp').`)
       return
@@ -157,8 +165,9 @@ export class Controller {
     this.identity = null
     this.appliedIdentity = null
     this.sessionPromise = null
-    this.telegramLink = null
-    this.telegramLinkPromise = null
+    this.links = { tg: null, wa: null }
+    this.linkPromises = { tg: null, wa: null }
+    this.pendingFiles.clear()
     void this.hub?.stop()
     this.hub = null
     this.set({ messages: [], unread: 0, error: null })
@@ -172,8 +181,6 @@ export class Controller {
 
   /**
    * Открывает бота в Telegram с одноразовой ссылкой: переписка продолжится в том же чате.
-   * Ссылка запрашивается заранее, потому что браузеры (особенно Safari на iOS) блокируют переход,
-   * если перед ним по клику шёл сетевой запрос.
    */
   private openTelegram(): void {
     const bot = this.state.config?.telegramBot
@@ -181,13 +188,36 @@ export class Controller {
       console.warn('[Relayo] Telegram is not connected to this widget.')
       return
     }
+    this.openMessenger('tg', `https://t.me/${encodeURIComponent(bot)}`)
+  }
 
-    const ready = this.telegramLink
+  /**
+   * Открывает в WhatsApp чат с номером канала. Если номер подключён к Relayo по QR, в поле ввода подставляется
+   * код перехода: по нему первое сообщение попадёт в эту же переписку.
+   */
+  private openWhatsApp(): void {
+    const config = this.state.config
+    if (!config?.whatsApp) {
+      console.warn('[Relayo] WhatsApp is not connected to this widget.')
+      return
+    }
+    const plain = `https://wa.me/${encodeURIComponent(config.whatsApp)}`
+    if (!config.whatsAppCode) return openInNewTab(plain)
+    this.openMessenger('wa', plain)
+  }
+
+  /**
+   * Переход в мессенджер по одноразовой ссылке. Ссылка запрашивается заранее, потому что браузеры
+   * (особенно Safari на iOS) блокируют переход, если перед ним по клику шёл сетевой запрос.
+   * Без ссылки человек всё равно попадёт в мессенджер (fallback), только переписка начнётся заново.
+   */
+  private openMessenger(kind: MessengerKind, fallback: string): void {
+    const ready = this.links[kind]
     if (ready && ready.expiresAt - Date.now() > 30_000) {
       openInNewTab(ready.url)
       // Ссылка одноразовая: сразу готовим следующую.
-      this.telegramLink = null
-      void this.refreshTelegramLink()
+      this.links[kind] = null
+      void this.refreshLink(kind).catch(() => undefined)
       return
     }
 
@@ -197,27 +227,35 @@ export class Controller {
     if (tab) tab.opener = null
     const go = (url: string) => (tab ? (tab.location.href = url) : (window.location.href = url))
     this.ensureSession()
-      .then(() => this.refreshTelegramLink())
+      .then(() => this.refreshLink(kind))
       .then((url) => {
-        this.telegramLink = null
+        this.links[kind] = null
         go(url)
-        void this.refreshTelegramLink()
+        void this.refreshLink(kind).catch(() => undefined)
       })
       .catch((error) => {
-        // Без ссылки человек всё равно попадёт к боту, только переписка начнётся заново.
-        console.warn('[Relayo] Could not create a Telegram link, opening the bot without it', error)
-        go(`https://t.me/${encodeURIComponent(bot)}`)
+        console.warn(`[Relayo] Could not create a ${kind === 'tg' ? 'Telegram' : 'WhatsApp'} link, opening without it`, error)
+        go(fallback)
       })
   }
 
   // ---- Переписка ----
 
-  async send(text: string, retryOf?: ViewMessage): Promise<void> {
+  /** Можно ли прикладывать файлы и сколько всего байт в одном сообщении. */
+  get maxAttachmentBytes(): number {
+    const config = this.state.config
+    if (!config || config.options?.allowAttachments === false) return 0
+    // В файлах виджета, опубликованных до появления вложений, лимита нет: берём обычный, сервер всё равно проверит.
+    return config.maxAttachmentBytes ?? 20 * 1024 * 1024
+  }
+
+  async send(text: string, files: File[] = [], retryOf?: ViewMessage): Promise<void> {
     text = text.trim()
-    if (!text) return
     const clientMessageId = retryOf?.clientMessageId ?? randomId()
+    if (retryOf) files = this.pendingFiles.get(clientMessageId) ?? []
+    if (!text && files.length === 0) return
     const optimistic: ViewMessage = retryOf
-      ? { ...retryOf, pending: 'sending' }
+      ? { ...retryOf, pending: 'sending', errorCode: undefined }
       : {
           id: `local-${clientMessageId}`,
           chatId: '',
@@ -226,17 +264,20 @@ export class Controller {
           text,
           createdAt: new Date().toISOString(),
           clientMessageId,
+          attachments: files.map((f, i) => ({ id: `local-${i}`, fileName: f.name, contentType: f.type, size: f.size, url: null })),
           pending: 'sending',
         }
+    if (files.length > 0) this.pendingFiles.set(clientMessageId, files)
     this.upsertLocal(optimistic)
 
     try {
       await this.ensureSession()
-      const saved = await this.api.send(this.visitorToken!, text, clientMessageId)
+      const saved = await this.api.send(this.visitorToken!, text, clientMessageId, files)
+      this.pendingFiles.delete(clientMessageId)
       this.replaceLocal(clientMessageId, saved)
     } catch (error) {
       console.error('[Relayo] Message was not sent', error)
-      this.upsertLocal({ ...optimistic, pending: 'failed' })
+      this.upsertLocal({ ...optimistic, pending: 'failed', errorCode: error instanceof WidgetApiError ? error.code : undefined })
     }
   }
 
@@ -256,32 +297,43 @@ export class Controller {
     await this.applyIdentity(true)
     await this.connectHub()
     this.set({ connecting: false })
-    this.startTelegramLinkRefresh()
+    this.startLinkRefresh()
+    this.historyTimer ??= setInterval(() => {
+      if (this.state.open && document.visibilityState === 'visible') void this.refreshHistory()
+    }, HISTORY_REFRESH_MS)
   }
 
-  /** Держит наготове свежую ссылку в Telegram, пока вкладка видна. */
-  private startTelegramLinkRefresh(): void {
-    if (!this.state.config?.telegramBot || this.linkTimer) return
-    void this.refreshTelegramLink().catch(() => undefined)
+  /** Мессенджеры, в которые виджет переходит по одноразовой ссылке. */
+  private linkKinds(): MessengerKind[] {
+    const config = this.state.config
+    return [...(config?.telegramBot ? (['tg'] as const) : []), ...(config?.whatsApp && config.whatsAppCode ? (['wa'] as const) : [])]
+  }
+
+  /** Держит наготове свежие ссылки в мессенджеры, пока вкладка видна. */
+  private startLinkRefresh(): void {
+    const kinds = this.linkKinds()
+    if (kinds.length === 0 || this.linkTimer) return
+    for (const kind of kinds) void this.refreshLink(kind).catch(() => undefined)
     this.linkTimer = setInterval(() => {
       if (document.visibilityState !== 'visible' || !this.visitorToken) return
-      const link = this.telegramLink
-      if (!link || link.expiresAt - Date.now() < LINK_REFRESH_BEFORE_MS) void this.refreshTelegramLink().catch(() => undefined)
+      for (const kind of kinds) {
+        const link = this.links[kind]
+        if (!link || link.expiresAt - Date.now() < LINK_REFRESH_BEFORE_MS) void this.refreshLink(kind).catch(() => undefined)
+      }
     }, LINK_CHECK_INTERVAL_MS)
   }
 
-  private refreshTelegramLink(): Promise<string> {
+  private refreshLink(kind: MessengerKind): Promise<string> {
     if (!this.visitorToken) return Promise.reject(new Error('No visitor session'))
-    this.telegramLinkPromise ??= this.api
-      .telegramLink(this.visitorToken)
+    this.linkPromises[kind] ??= (kind === 'tg' ? this.api.telegramLink(this.visitorToken) : this.api.whatsAppLink(this.visitorToken))
       .then((link) => {
-        this.telegramLink = { url: link.url, expiresAt: Date.parse(link.expiresAt) }
+        this.links[kind] = { url: link.url, expiresAt: Date.parse(link.expiresAt) }
         return link.url
       })
       .finally(() => {
-        this.telegramLinkPromise = null
+        this.linkPromises[kind] = null
       })
-    return this.telegramLinkPromise
+    return this.linkPromises[kind]
   }
 
   /** Применяет identify()/setClientId(), если есть сессия; иначе это сделает startSession(). */
@@ -365,6 +417,7 @@ export class Controller {
     }
     this.set({ messages: [...this.state.messages, message] })
     this.emit('message', message)
+    if (message.author === 'operator' && this.state.config?.options?.sound === 'Beep') beep()
     if (!this.state.open && message.author !== 'client') {
       this.set({ unread: this.state.unread + 1 })
       this.emit('unreadChanged', this.state.unread)
@@ -396,6 +449,24 @@ export class Controller {
         console.error(`[Relayo] Error in "${event}" handler`, error)
       }
     })
+  }
+}
+
+/** Короткий сигнал о новом сообщении, без загрузки звуковых файлов. */
+function beep(): void {
+  try {
+    const audio = new AudioContext()
+    const oscillator = audio.createOscillator()
+    const gain = audio.createGain()
+    oscillator.connect(gain)
+    gain.connect(audio.destination)
+    gain.gain.value = 0.08
+    oscillator.frequency.value = 660
+    oscillator.start()
+    oscillator.stop(audio.currentTime + 0.18)
+    oscillator.onended = () => void audio.close()
+  } catch {
+    // браузер не дал проиграть звук без действия пользователя
   }
 }
 

@@ -116,7 +116,8 @@ export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
     fetch(url, {
       ...init,
       headers: {
-        ...(init.body ? { 'content-type': 'application/json' } : {}),
+        // FormData (файлы) браузер оформляет сам, с границей частей в заголовке.
+        ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}),
         ...init.headers,
         ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       },

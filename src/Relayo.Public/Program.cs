@@ -9,6 +9,8 @@ using Relayo.Public.Internal;
 using Relayo.Public.Telegram;
 using Relayo.Public.Widget;
 using Relayo.ServiceDefaults;
+using Relayo.ServiceDefaults.Redis;
+using StackExchange.Redis;
 using Serilog;
 using Wolverine;
 using Wolverine.RabbitMQ;
@@ -41,6 +43,8 @@ builder.Services
         // и всё это время виджеты получали бы 503.
         o.InitialReconnectBackoff = TimeSpan.FromSeconds(1);
         o.MaxReconnectBackoff = TimeSpan.FromSeconds(5);
+        // Вложения посетителей передаются в вызове: лимит — размер файлов плюс запас.
+        o.MaxSendMessageSize = (int)Math.Min(int.MaxValue, settings.AttachmentsMaxBytes + 1024 * 1024);
     });
 builder.Services.AddScoped<InternalApi>();
 builder.Services.AddMemoryCache();
@@ -48,6 +52,9 @@ builder.Services.AddSingleton<OriginPolicy>();
 builder.Services.AddScoped<WidgetConfigCache>();
 builder.Services.AddHostedService<OriginRefresher>();
 builder.Services.AddSignalR();
+// Redis нужен публичному сервису только для общих лимитов на IP при нескольких экземплярах.
+// Realtime виджета работает и без него: события приходят во все экземпляры через RabbitMQ (fanout).
+builder.Services.AddRelayoRedis(settings.Redis, "relayo-public");
 builder.Services.AddHealthChecks()
     .AddCheck<InternalGatewayHealthCheck>("internal-gateway", tags: [ServiceDefaultsExtensions.ReadyTag]);
 
@@ -94,13 +101,15 @@ builder.Services.AddOptions<CorsOptions>().Configure<OriginPolicy>((cors, origin
         // Cookie не используются: токен посетителя передаётся в заголовке или в query (SignalR).
         .DisallowCredentials()));
 
-// Ограничение частоты запросов с одного адреса
+// Ограничение частоты запросов с одного адреса. С Redis лимит общий для всех экземпляров.
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
     {
         var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var redis = http.RequestServices.GetService<IConnectionMultiplexer>();
+        var logger = http.RequestServices.GetRequiredService<ILogger<RedisFixedWindowRateLimiter>>();
         if (http.Request.Path.StartsWithSegments("/health"))
             return RateLimitPartition.GetNoLimiter("health");
         // Webhook Telegram приходит с немногих адресов Telegram: обычный лимит на IP его бы душил.
@@ -111,11 +120,12 @@ builder.Services.AddRateLimiter(o =>
                 PermitLimit = 6000,
                 Window = TimeSpan.FromMinutes(1),
             });
-        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = settings.RateLimitRequestsPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-        });
+        // Сообщения с файлами — отдельный, более строгий лимит: они тяжелее для внутреннего сервиса и S3.
+        if (http.Request.HasFormContentType && http.Request.Path.StartsWithSegments("/api/widget"))
+            return RelayoRateLimits.FixedWindow(redis, logger, "public:up:" + ip, settings.RateLimitUploadsPerMinute,
+                TimeSpan.FromMinutes(1));
+        return RelayoRateLimits.FixedWindow(redis, logger, "public:ip:" + ip, settings.RateLimitRequestsPerMinute,
+            TimeSpan.FromMinutes(1));
     });
 });
 

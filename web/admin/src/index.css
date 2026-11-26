@@ -27,6 +27,109 @@ body,
   background: #fafafa;
 }
 
+/* Страница канала: одна форма из нескольких карточек, кнопки — под последней (как в Usedesk). */
+.channel-form > .section-card + .section-card {
+  margin-top: 16px;
+}
+
+.settings-fields {
+  max-width: 1000px;
+}
+
+.save-bar {
+  padding: 16px 0 0 240px;
+}
+
+.embed-row {
+  max-width: 1000px;
+  margin: 16px 0 0;
+}
+
+
+.code-area.ant-input {
+  background: #f5f5f5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.medium-input {
+  max-width: 520px;
+}
+
+/* Поле, которое ещё не работает: элемент и пометка рядом */
+.soon-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.soon-field > .ant-input,
+.soon-field > .ant-select,
+.soon-field > textarea {
+  width: 420px;
+  max-width: 100%;
+}
+
+.soon-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.soon-tag {
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: #8c8c8c;
+}
+
+/* Пункты виджета: тип, подпись, бот или адрес, кнопка удаления */
+.launcher-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.launcher-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Картинка кнопки виджета */
+.icon-preview {
+  width: 200px;
+  height: 200px;
+  padding: 3px;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+}
+
+.icon-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.icon-default {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 700px) {
+  .save-bar {
+    padding-left: 0;
+  }
+}
+
 /* Блок пользователя в тёмной боковой панели. */
 .sider-user {
   display: flex;
@@ -366,10 +469,64 @@ body,
 
 /* Поле ответа */
 .composer {
+  position: relative;
   margin: 0 16px 16px;
   background: #fff;
   border: 1px solid #e8e8e8;
   border-radius: 8px;
+}
+
+.composer.dragging {
+  border-color: #1677ff;
+}
+
+/* Подсказка поверх поля, пока над ним держат файлы */
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #1677ff;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1677ff;
+  pointer-events: none;
+}
+
+.composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 4px;
+}
+
+/* Вложения в сообщении */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.msg-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.msg-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-file-size {
+  color: #8c8c8c;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .composer-top {
@@ -490,6 +647,22 @@ body,
   background: #2093c6;
 }
 
+.channel-tile.whatsapp {
+  background: #1fa463;
+}
+
+.channel-tile.whatsapp:hover {
+  background: #1a8f56;
+}
+
+.channel-tile.email {
+  background: #4a78c9;
+}
+
+.channel-tile.email:hover {
+  background: #3e68b3;
+}
+
 .channel-tile.disabled {
   background: #9aa3ad;
 }
@@ -520,8 +693,9 @@ body,
   pointer-events: none;
 }
 
-/* Статус подключения LDAP */
+/* Статус подключения LDAP и почты */
 .status-box {
+  white-space: pre-line;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -868,5 +1042,91 @@ body,
 }
 
 .agent-name .ant-typography {
+  font-size: 12px;
+}
+
+/* Канал WhatsApp: место под QR-код подключения номера */
+.whatsapp-qr {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 560px;
+  padding: 14px 16px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.whatsapp-qr-icon {
+  font-size: 64px;
+  color: #bfbfbf;
+}
+
+
+/* Живой QR-код подключения WhatsApp и подсказка рядом */
+.whatsapp-qr-live {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  max-width: 720px;
+}
+
+.whatsapp-qr-live .ant-qrcode {
+  flex-shrink: 0;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+}
+
+/* Внутренняя заметка: видят только сотрудники */
+.msg.internal .msg-card {
+  background: #fffbe6;
+  border: 1px dashed #ffd666;
+}
+
+.msg-note-label {
+  color: #ad8b00;
+  font-size: 12px;
+}
+
+.composer.note {
+  background: #fffbe6;
+}
+
+.ticket-page-url {
+  word-break: break-all;
+}
+
+/* Почтовый канал: входящее и исходящее соединения рядом, как в Usedesk */
+.mail-connections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.mail-connections .ant-card-head {
+  background: #fafafa;
+}
+
+.mail-connections .ant-collapse-header {
+  padding-left: 150px !important;
+}
+
+@media (max-width: 1200px) {
+  .mail-connections {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Импорт из Usedesk: пометки и пропущенные записи списком без отступов */
+.usedesk-notes,
+.usedesk-skipped {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.usedesk-notes {
+  color: rgba(0, 0, 0, 0.55);
   font-size: 12px;
 }

@@ -11,6 +11,49 @@ export interface WidgetConfig {
   historyDays: number
   /** Имя Telegram-бота без @, если он подключён к виджету. */
   telegramBot: string | null
+  /** Номер WhatsApp (только цифры, с кодом страны), если к виджету подключён канал WhatsApp. */
+  whatsApp?: string | null
+  /** Номер подключён к Relayo по QR: переход идёт по ссылке с кодом, переписка продолжается. */
+  whatsAppCode?: boolean
+  /** Внешний вид и поведение (страница канала в админке). У старых опубликованных файлов их нет. */
+  options?: WidgetOptions | null
+  /** Своя картинка кнопки чата. */
+  buttonIconUrl?: string | null
+  /** Суммарный размер файлов одного сообщения; 0 — файлы прикладывать нельзя. */
+  maxAttachmentBytes?: number
+}
+
+export interface LauncherItem {
+  type: 'Chat' | 'Telegram' | 'Link' | 'WhatsApp'
+  label: string
+  url?: string | null
+}
+
+export interface WidgetOptions {
+  caption: string
+  allowAttachments: boolean
+  zIndex: number
+  hideOnOutsideClick: boolean
+  visibility: 'Always' | 'Never'
+  buttonDelaySeconds: number
+  buttonColor: string | null
+  tooltipMode: 'Never' | 'Always' | 'Hover'
+  tooltipText: string
+  tooltipBackground: string
+  tooltipColor: string
+  tooltipTextSize: number
+  sound: 'None' | 'Beep'
+  operatorName: string | null
+  items: LauncherItem[]
+}
+
+export interface Attachment {
+  id: string
+  fileName: string
+  contentType: string
+  size: number
+  /** Временная ссылка; обновляется вместе с историей. */
+  url: string | null
 }
 
 export interface MessengerLink {
@@ -26,6 +69,7 @@ export interface Message {
   text: string
   createdAt: string
   clientMessageId: string | null
+  attachments?: Attachment[] | null
 }
 
 export interface Session {
@@ -72,18 +116,32 @@ export class Api {
     return this.request('POST', '/telegram-link', undefined, visitorToken)
   }
 
-  send(visitorToken: string, text: string, clientMessageId: string): Promise<Message> {
-    return this.request('POST', '/messages', { text, clientMessageId }, visitorToken)
+  whatsAppLink(visitorToken: string): Promise<MessengerLink> {
+    return this.request('POST', '/whatsapp-link', undefined, visitorToken)
+  }
+
+  send(visitorToken: string, text: string, clientMessageId: string, files: File[] = []): Promise<Message> {
+    // Страница, с которой пишет клиент: оператор видит её у чата.
+    const pageUrl = location.href
+    if (files.length === 0) return this.request('POST', '/messages', { text, clientMessageId, pageUrl }, visitorToken)
+    const form = new FormData()
+    form.append('text', text)
+    form.append('clientMessageId', clientMessageId)
+    form.append('pageUrl', pageUrl)
+    for (const file of files) form.append('files', file, file.name)
+    return this.request('POST', '/messages', form, visitorToken)
   }
 
   private async request<T>(method: string, path: string, body?: unknown, visitorToken?: string | null): Promise<T> {
     const headers: Record<string, string> = {}
-    if (body !== undefined) headers['content-type'] = 'application/json'
+    const isForm = body instanceof FormData
+    // Для FormData заголовок с границей частей браузер ставит сам.
+    if (body !== undefined && !isForm) headers['content-type'] = 'application/json'
     if (visitorToken) headers['x-relayo-visitor'] = visitorToken
     const response = await fetch(this.base + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       credentials: 'omit',
     })
     if (!response.ok) {

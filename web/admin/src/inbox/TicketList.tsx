@@ -168,7 +168,7 @@ function TicketRow({
           <span className="inbox-row-number">#{ticket.number}</span>
         </div>
         <div className="inbox-row-line">
-          <span className="inbox-row-preview">{ticket.lastMessagePreview}</span>
+          <span className="inbox-row-preview">{ticket.subject ?? ticket.lastMessagePreview}</span>
           {ticket.status !== 'Closed' && (
             <span className={`inbox-row-time${awaiting ? ' awaiting' : ''}`}>{duration(ticket.lastMessageAt, now)}</span>
           )}

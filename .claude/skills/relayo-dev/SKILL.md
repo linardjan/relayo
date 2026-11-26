@@ -10,7 +10,7 @@ description: Запуск, перезапуск и проверка локаль
 ## 1. Что уже запущено
 
 ```bash
-docker ps --format '{{.Names}}\t{{.Status}}'                  # relayo-postgres-1, -rabbitmq-1, -redis-1, -s3-1, -seq-1, -test-site-1, -samba-1 (профиль ad)
+docker ps --format '{{.Names}}\t{{.Status}}'                  # relayo-mssql-1, -rabbitmq-1, -redis-1, -s3-1, -seq-1, -test-site-1, -samba-1 (профиль ad)
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5100/health/ready   # Internal
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5200/health/ready   # Public
 curl -s -o /dev/null -w '%{http_code}\n' localhost:5173/               # админка (Vite)
@@ -33,6 +33,7 @@ dotnet build Relayo.slnx
 dotnet run --project src/Relayo.Internal --no-build > <scratchpad>/logs/internal.log 2>&1
 dotnet run --project src/Relayo.Public   --no-build > <scratchpad>/logs/public.log 2>&1
 cd web/admin && npm run dev                # только если 5173 не слушается
+cd src/Relayo.WhatsApp && npm run dev      # шлюз WhatsApp :5400 (только если нужен WhatsApp по QR)
 ```
 
 Дождаться готовности перед проверками (Monitor с until-циклом, не sleep):
@@ -67,11 +68,18 @@ Internal применяет миграции и DevSeed при старте; Pub
 | Realtime (SignalR) оператора и посетителя | `node tools/checks/realtime.cjs` |
 | Правила: API | `node tools/checks/rules.cjs` |
 | Правила: движок, таймеры, лимиты, журнал | `node tools/checks/engine.cjs` |
+| Почтовый канал: настройки и проверка входа на поддельные IMAP/SMTP | `node tools/checks/email.cjs` |
+| Импорт из Usedesk (тестовая MySQL: `docker compose --profile usedesk up -d usedesk-mysql`) | `node tools/checks/usedesk-import.cjs` |
 | Telegram (обновления подделываются через вебхук Public) | `node tools/checks/telegram.cjs` |
+| Канал WhatsApp «только ссылка» и переход из виджета на wa.me | `node tools/checks/whatsapp.cjs` |
+| WhatsApp по QR без телефона (поддельный шлюз на 5400; настоящий шлюз остановить) | `node tools/checks/whatsapp-gateway.cjs` |
 | LDAP/AD (нужен профиль `ad` и засеянный Samba) | `node tools/checks/ldap.cjs` |
 | Агенты, группы, статусы, поля из AD | `node tools/checks/agents.cjs` |
 | Публикация виджета в S3, версии, откат | `node tools/checks/publish.cjs` |
+| Вложения (S3), настройки канала, картинка кнопки | `node tools/checks/files.cjs` |
+| Несколько экземпляров Internal + Redis (нужен второй на 5110/5111, запускать последней) | `node tools/checks/scale.cjs` |
 | Новые обращения: счётчик во вкладке, подсветка | `node tools/checks/unread.cjs` |
+| Заметки, страница сайта у чата, группа тикета | `node tools/checks/notes.cjs` |
 | Боевой стенд `deploy/` | `node tools/checks/deploy.cjs`, `node tools/checks/stand-s3.cjs` |
 
 Если проверки не хватает для новой функции — дописать её в `tools/checks` в том же стиле (`check(name, ok, extra)`, уникальный `run` в именах данных, уборка в конце).
@@ -89,10 +97,10 @@ node tools/checks/widget.cjs                                                    
 ## 6. БД, шина, логи
 
 ```bash
-docker exec relayo-postgres-1 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\dt'      # переменные — из .env
+node tools/checks/db.cjs "SELECT name FROM sys.tables ORDER BY name"        # MS SQL; подключение — из .env
 ```
 
-- Таблицы в snake_case: `tickets`, `messages` (секционирована по месяцам), `clients`, `users`, `sites`, `widgets`, `rules`, `rule_executions`, `telegram_bots` …
+- Таблицы в snake_case: `tickets`, `messages` (секционирована по месяцам), `attachments`, `clients`, `users`, `sites`, `widgets`, `rules`, `rule_executions`, `telegram_bots` …
 - Логи: файлы фоновых задач в scratchpad; структурированные логи и трассы — Seq http://localhost:8081.
 - RabbitMQ: http://localhost:15672, S3 (RustFS): http://localhost:9001, файлы виджетов — `http://localhost:9000/relayo-widgets/widget_<publicKey>.js`.
 

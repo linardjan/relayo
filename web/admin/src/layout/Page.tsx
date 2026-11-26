@@ -1,4 +1,4 @@
-import { Breadcrumb, Button, Card, Form, Space, type FormProps } from 'antd'
+import { Breadcrumb, Button, Card, Form, Space, Tag, Tooltip, type FormProps } from 'antd'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -62,7 +62,8 @@ export function SettingsForm<T extends object>({
       layout="horizontal"
       labelCol={{ flex: '240px' }}
       labelWrap
-      wrapperCol={{ flex: 1 }}
+      // База 0, а не auto: иначе длинная подсказка под полем переносит поле под подпись.
+      wrapperCol={{ flex: '1 1 0' }}
       colon={false}
       style={{ maxWidth: 1000 }}
       {...props}
@@ -78,5 +79,51 @@ export function SettingsForm<T extends object>({
         </Space>
       </Form.Item>
     </Form>
+  )
+}
+
+/** Раскладка полей настроек: подпись слева (240px, по правому краю), поле справа. Общая для форм из нескольких карточек. */
+export const settingsLayout = {
+  layout: 'horizontal',
+  labelCol: { flex: '240px' },
+  labelWrap: true,
+  wrapperCol: { flex: '1 1 0' },
+  colon: false,
+} as const
+
+/** Кнопки под формой из нескольких карточек, на одной линии с полями: «Save», затем остальные действия. */
+export function SaveBar({ saving, saveText, children }: { saving?: boolean; saveText?: string; children?: ReactNode }) {
+  const { t } = useTranslation()
+  return (
+    <div className="save-bar">
+      <Space>
+        <Button type="primary" htmlType="submit" loading={saving}>
+          {saveText ?? t('settings.save')}
+        </Button>
+        {children}
+      </Space>
+    </div>
+  )
+}
+
+/** Пометка «Coming soon» для того, что повторяет раскладку Usedesk, но ещё не работает. */
+export function SoonTag() {
+  const { t } = useTranslation()
+  return (
+    <Tooltip title={t('common.comingSoonHelp')}>
+      <Tag className="soon-tag">{t('common.comingSoon')}</Tag>
+    </Tooltip>
+  )
+}
+
+/** Поле, которого ещё нет: выключенный элемент и рядом пометка «Coming soon». */
+export function SoonField({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <Form.Item label={label}>
+      <span className="soon-field">
+        {children}
+        <SoonTag />
+      </span>
+    </Form.Item>
   )
 }

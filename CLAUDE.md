@@ -2,7 +2,8 @@
 
 Система поддержки, заменяющая Usedesk: операторы отвечают клиентам из веб-виджета и Telegram (WhatsApp позже).
 ТЗ — [relayo-tz.md](relayo-tz.md), устройство — [docs/architecture.md](docs/architecture.md),
-развёртывание — [docs/deployment.md](docs/deployment.md), запуск для разработки — [README.md](README.md).
+развёртывание — [docs/deployment.md](docs/deployment.md), запуск для разработки — [README.md](README.md),
+перенос из Usedesk (таблицы, сопоставление, недостающие столбцы) — [docs/usedesk-migration.md](docs/usedesk-migration.md).
 
 Скиллы проекта:
 - `relayo-dev` — запустить или перезапустить стенд, проверить изменения, сделать скриншоты, посмотреть БД и логи;
@@ -12,9 +13,10 @@
 
 | Где | Что |
 |---|---|
-| `src/Relayo.Core` | Домен и EF Core (PostgreSQL, snake_case). Папки по областям: `Conversations`, `Clients`, `Channels`, `Sites`, `Users`, `Directory` (LDAP), `Automation` (правила), `Auth`, `Security`, `Data` (конфигурации, миграции, DevSeed) |
-| `src/Relayo.Internal` | Внутренний сервис: API админки `:5100` (`Api/*Endpoints.cs`), gRPC `:5101` для Public, SignalR `OperatorHub`, Wolverine-обработчики, Telegram (`Channels/Telegram`), правила (`Automation/RuleRunner.cs`), S3 (`Storage`) |
+| `src/Relayo.Core` | Домен и EF Core (MS SQL Server, snake_case). Папки по областям: `Conversations`, `Clients`, `Channels`, `Sites` (виджеты и их `WidgetOptions`), `Files` (вложения), `Users`, `Directory` (LDAP), `Automation` (правила), `Auth`, `Security`, `Data` (конфигурации, миграции, DevSeed, `DbLocks`) |
+| `src/Relayo.Internal` | Внутренний сервис: API админки `:5100` (`Api/*Endpoints.cs`), gRPC `:5101` для Public, SignalR `OperatorHub`, Wolverine-обработчики, Telegram (`Channels/Telegram`), правила (`Automation/RuleRunner.cs`), S3 (`Storage`), временный импорт из Usedesk (`Usedesk`, MySQL) |
 | `src/Relayo.Public` | Публичный сервис `:5200`: API виджета, `WidgetHub`, вебхук Telegram. **Без доступа к БД** — всё через gRPC к Internal (это проверяет `ArchitectureTests`) |
+| `src/Relayo.WhatsApp` | Шлюз WhatsApp на Node.js (Baileys, протокол WhatsApp Web) `:5400`: номера по QR-коду, входящие → `POST /api/whatsapp-gateway/...` Internal, ответы ← очередь `whatsapp-outgoing`. Ключ `WHATSAPP_GATEWAY_KEY`, сессии в `sessions/` (не коммитить). Один экземпляр |
 | `src/Relayo.Contracts` | `Protos/internal_gateway.proto` и сообщения шины |
 | `src/Relayo.ServiceDefaults` | `.env`, логи, OpenTelemetry, ForwardedHeaders, редактирование секретов в трассах |
 | `web/admin` | React 19 + AntD 6 + TanStack Query + react-router + i18next, `:5173` (Vite проксирует `/api` и `/hubs` на 5100) |
@@ -58,4 +60,19 @@
 - `DevSeed` только создаёт тестовый сайт и виджеты, существующие не перезаписывает.
 - В Chrome headless тестовые страницы с `file://` упираются в Local Network Access — открывать через реальный локальный сервер.
 - Compose 2.15: нет `depends_on.required`. nginx: `add_header` не наследуется в `location` — повторять заголовки.
-- В миграциях PostgreSQL нет `gen_random_bytes` без pgcrypto — использовать `gen_random_uuid()`.
+- БД — MS SQL Server. Строки по умолчанию сравниваются **без учёта регистра**: ключи, токены и внешние id помечать
+  `.IsCaseSensitive()` (`SqlCollations`). Строки длиннее 4000 символов становятся `nvarchar(max)` и не индексируются.
+- Блокировка «один за другим» — `db.LockAsync(key)` (`sp_getapplock`), только внутри транзакции.
+  `EnableRetryOnFailure` не включать: сервисы сами открывают транзакции.
+- Таблица `messages` секционирована (функция `pf_messages_month`): первичный ключ `(created_at, id)`, внешних ключей
+  на сообщения нет (вложения ссылаются по `message_id`). Секционирование задаётся SQL в миграции `Initial`.
+- Образ SQL Server только для amd64, а Docker 20.10 на этом Mac не распаковывает образы 2019/2022 («invalid tar header»):
+  локально `MSSQL_IMAGE=mcr.microsoft.com/azure-sql-edge:latest` (в `.env`). sqlcmd в нём нет — запросы через `node tools/checks/db.cjs`.
+- Несколько экземпляров: всё, что живёт в памяти процесса (лимиты, кэши, фоновые задачи «в одном экземпляре»),
+  должно работать через Redis (`IConnectionMultiplexer`, может отсутствовать — тогда один экземпляр) или блокировку в БД.
+  Образцы: `RelayoRateLimits`, `RedisLease`, `TelegramRateLimiter`, `TelegramBotTokens`. Второй экземпляр для проверки —
+  `INTERNAL_HTTP_PORT=5110 INTERNAL_GRPC_PORT=5111`, проверка `tools/checks/scale.cjs` (последней: исчерпывает лимит входа).
+- WhatsApp-шлюз: признак завершённого входа по QR — `creds.me`, а не `creds.registered` (тот только для кода сопряжения).
+  Baileys 7 сам не прекращает показывать QR: шлюз закрывает сессию через 3 минуты без сканирования.
+  Проверка без телефона — `tools/checks/whatsapp-gateway.cjs` (поддельный шлюз на порту 5400, настоящий остановить).
+- Сообщения с файлами в виджете ограничены `PUBLIC_RATE_LIMIT_UPLOADS_PER_MINUTE` (10 в минуту с адреса): проверки не должны слать файлы в цикле.

@@ -58,8 +58,10 @@ public sealed class ClientService(RelayoDbContext db)
         {
             var pattern = "%" + EscapeLike(search.Trim()) + "%";
             clients = clients.Where(c =>
-                (c.ExternalClientId != null && EF.Functions.ILike(c.ExternalClientId, pattern, "\\"))
-                || (c.DisplayName != null && EF.Functions.ILike(c.DisplayName, pattern, "\\")));
+                // clientId хранится с учётом регистра (это ключ), а ищем без учёта.
+                (c.ExternalClientId != null
+                 && EF.Functions.Like(EF.Functions.Collate(c.ExternalClientId, SqlCollations.CaseInsensitive), pattern, "\\"))
+                || (c.DisplayName != null && EF.Functions.Like(c.DisplayName, pattern, "\\")));
         }
 
         var total = await clients.CountAsync(ct);
@@ -131,7 +133,7 @@ public sealed class ClientService(RelayoDbContext db)
         r.LastActivityAt, r.Client.CreatedAt);
 
     private static string EscapeLike(string value) =>
-        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace("[", "\\[");
 
     private sealed class ClientRow
     {
