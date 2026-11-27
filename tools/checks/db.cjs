@@ -14,7 +14,7 @@ const env = Object.fromEntries(
 
 let pool = null
 function connect() {
-  pool ??= new mssql.ConnectionPool({
+  pool ??= (env.MSSQL_AUTH || 'sql').toLowerCase() === 'windows' ? connectWindows() : new mssql.ConnectionPool({
     server: env.MSSQL_HOST || 'localhost',
     port: Number(env.MSSQL_PORT || 1433),
     database: env.MSSQL_DB,
@@ -23,6 +23,23 @@ function connect() {
     options: { encrypt: true, trustServerCertificate: env.MSSQL_TRUST_SERVER_CERTIFICATE === 'true' },
   }).connect()
   return pool
+}
+
+// MSSQL_AUTH=windows: вход под текущей учёткой Windows. Драйвер tedious так не умеет, нужен msnodesqlv8
+// (ODBC Driver 18 for SQL Server). Ставится только на Windows и не входит в зависимости:
+//   npm install --no-save msnodesqlv8   (в tools/checks)
+function connectWindows() {
+  let driver
+  try {
+    driver = require('mssql/msnodesqlv8')
+  } catch {
+    throw new Error('MSSQL_AUTH=windows needs msnodesqlv8: run "npm install --no-save msnodesqlv8" in tools/checks')
+  }
+  const trust = env.MSSQL_TRUST_SERVER_CERTIFICATE === 'true' ? 'yes' : 'no'
+  return new driver.ConnectionPool({
+    connectionString: `Driver={ODBC Driver 18 for SQL Server};Server=${env.MSSQL_HOST || 'localhost'},${env.MSSQL_PORT || 1433};`
+      + `Database=${env.MSSQL_DB};Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=${trust};`,
+  }).connect()
 }
 
 const text = (v) => (v === null || v === undefined ? '' : v === true ? 't' : v === false ? 'f' : v instanceof Date ? v.toISOString() : String(v))

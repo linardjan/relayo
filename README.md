@@ -24,6 +24,7 @@
 
 Как устроена система: компоненты, связи, сценарии и тестовые стенды — [docs/architecture.md](docs/architecture.md).
 Развёртывание на серверах (без среды разработки) — [docs/deployment.md](docs/deployment.md).
+Среда разработки на Windows без Docker (инфраструктура установлена в системе) — [docs/windows-dev.md](docs/windows-dev.md).
 
 ## Что нужно
 

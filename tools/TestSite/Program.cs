@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 // Тестовый «сайт клиента». Слушает два порта — два зеркала одного сайта:
 // у каждого свой localStorage и своя cookie входа, как у разных доменов.
 // Вход ненастоящий: кнопка «Войти как клиент 1001».
+// Запускается в Docker (docker compose up -d test-site), через dotnet run или в IIS (install-iis.ps1).
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
@@ -30,11 +31,16 @@ var directWidgetKey = Get("TEST_WIDGET_DIRECT_MODE_KEY", "testdirect");
 // Адрес публичного сервиса, каким его видит браузер (не контейнер).
 var publicUrl = Get("PUBLIC_BASE_URL", "http://localhost:5200").TrimEnd('/');
 
-builder.WebHost.ConfigureKestrel(k =>
+// В IIS (tools/TestSite/install-iis.ps1) порты — привязки сайта IIS, Kestrel не используется.
+// Переменную APP_POOL_ID задаёт рабочий процесс IIS.
+if (Environment.GetEnvironmentVariable("APP_POOL_ID") is null)
 {
-    k.ListenAnyIP(port);
-    k.ListenAnyIP(mirrorPort);
-});
+    builder.WebHost.ConfigureKestrel(k =>
+    {
+        k.ListenAnyIP(port);
+        k.ListenAnyIP(mirrorPort);
+    });
+}
 
 var app = builder.Build();
 var handler = new JsonWebTokenHandler();
@@ -133,6 +139,10 @@ internal partial class Program
   .muted { color: #888; font-size: 13px; }
   .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #e6f4ff; color: #0958d9; font-size: 12px; }
   .warn { background: #fff7e6; color: #d46b08; }
+  .script-row { display: flex; gap: 6px; }
+  .script-row input { flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+  .script-row button { margin: 0; }
+  code { font-size: 12px; word-break: break-all; }
   pre { background: #111; color: #9f9; padding: 12px; border-radius: 8px; height: 220px; overflow: auto; font-size: 12px; margin: 0; }
 </style>
 </head>
@@ -166,6 +176,21 @@ internal partial class Program
   </section>
 
   <section>
+    <h2>Widget script</h2>
+    <p class="muted">
+      Paste a widget file URL (<code>…/widget_&lt;key&gt;.js</code>) or the whole embed code from Settings → Widgets
+      and press Apply: the page reloads with that widget. Saved in this browser for the current mode and site
+      (the mirror keeps its own).
+    </p>
+    <div class="script-row">
+      <input id="widgetSrc" spellcheck="false" placeholder="https://…/widget_xxxxxxxxxx.js or &lt;script …&gt;&lt;/script&gt;">
+      <button class="primary" id="widgetApply">Apply</button>
+      <button id="widgetReset">Reset</button>
+    </div>
+    <p class="muted" id="widgetNow"></p>
+  </section>
+
+  <section>
     <h2>Widget</h2>
     <button onclick="Relayo.open()">Relayo.open()</button>
     <button onclick="Relayo.close()">Relayo.close()</button>
@@ -178,8 +203,40 @@ internal partial class Program
   </section>
 </main>
 
-<!-- Код вставки виджета: одна строка. -->
-<script async src="{{WIDGET_FILE}}"></script>
+<script>
+  // Код вставки виджета. На настоящем сайте это одна строка <script async src="…/widget_<ключ>.js">.
+  // Здесь его можно заменить из поля «Widget script»: ссылка или код вставки целиком
+  // хранятся в localStorage отдельно для каждого режима, по умолчанию — тестовый виджет из .env.
+  const DEFAULT_WIDGET = '{{WIDGET_FILE}}';
+  const WIDGET_KEY = 'testsite_widget_script_{{MODE}}';
+
+  // Из ссылки или кода вставки — атрибуты тега: src и data-* (для core.js с data-relayo-widget).
+  function parseWidget(text) {
+    text = (text || '').trim();
+    if (!text) return null;
+    let attrs;
+    if (text.startsWith('<')) {
+      const tag = new DOMParser().parseFromString(text, 'text/html').querySelector('script[src]');
+      if (!tag) return null;
+      attrs = [...tag.attributes].filter((a) => a.name === 'src' || a.name.startsWith('data-')).map((a) => [a.name, a.value]);
+    } else {
+      attrs = [['src', text]];
+    }
+    const src = attrs.find(([name]) => name === 'src')[1];
+    try {
+      const url = new URL(src, location.href);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    } catch { return null; }
+    return attrs;
+  }
+
+  const savedWidget = localStorage.getItem(WIDGET_KEY);
+  const widgetAttrs = parseWidget(savedWidget) || parseWidget(DEFAULT_WIDGET);
+  const widgetScript = document.createElement('script');
+  widgetScript.async = true;
+  widgetAttrs.forEach(([name, value]) => widgetScript.setAttribute(name, value));
+  document.body.appendChild(widgetScript);
+</script>
 
 <script>
   const MODE = '{{MODE}}', PRODUCT = '{{PRODUCT}}', CLIENT_IDS = '{{CLIENT_IDS}}'.split(',');
@@ -246,6 +303,21 @@ internal partial class Program
     user = null; renderAccount();
   };
   document.querySelectorAll('#badTokens button').forEach((b) => b.onclick = () => identify(b.dataset.variant));
+
+  const widgetInput = document.getElementById('widgetSrc');
+  widgetInput.value = savedWidget || DEFAULT_WIDGET;
+  document.getElementById('widgetNow').innerHTML = 'Loaded: <code></code>' + (savedWidget ? ' (custom)' : ' (default from .env)');
+  document.querySelector('#widgetNow code').textContent = widgetScript.getAttribute('src');
+  widgetScript.addEventListener('error', () => log('Widget script failed to load: ' + widgetScript.src));
+  const applyWidget = () => {
+    const text = widgetInput.value.trim();
+    if (!parseWidget(text)) { log('Not a widget URL or embed code: ' + text.slice(0, 120)); return; }
+    if (text === DEFAULT_WIDGET) localStorage.removeItem(WIDGET_KEY); else localStorage.setItem(WIDGET_KEY, text);
+    location.reload();
+  };
+  document.getElementById('widgetApply').onclick = applyWidget;
+  widgetInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyWidget(); });
+  document.getElementById('widgetReset').onclick = () => { localStorage.removeItem(WIDGET_KEY); location.reload(); };
 
   withRelayo((r) => ['ready', 'open', 'close', 'message', 'unreadChanged'].forEach((e) =>
     r.on(e, (payload) => log('event ' + e + (payload !== undefined ? ': ' + JSON.stringify(payload).slice(0, 120) : '')))));

@@ -23,7 +23,7 @@
 | `web/widget` | Preact в Shadow DOM, сборка в `src/Relayo.Public/wwwroot/widget/core.js` |
 | `tests/Relayo.Tests` | Модульные тесты: xUnit v3 на Microsoft.Testing.Platform |
 | `tools/checks` | Проверки работающего стенда и скриншоты (см. `tools/checks/README.md`) |
-| `tools/TestSite` | Тестовый сайт с виджетом в Docker, `:5300` и зеркало `:5301` |
+| `tools/TestSite` | Тестовый сайт с виджетом, `:5300` и зеркало `:5301`: в Docker, на Windows — в IIS (`install-iis.ps1`). Ссылку на виджет можно сменить на странице (блок Widget script) |
 | `deploy/` | Боевые Dockerfile и compose (профили internal/public/storage) |
 
 ## Правила, которые задал пользователь

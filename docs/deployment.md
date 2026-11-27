@@ -386,6 +386,7 @@ docker compose --profile internal --profile public up -d
 | `ADMIN_BIND`, `ADMIN_PORT`, `PUBLIC_BIND`, `PUBLIC_PORT` | — | Где слушают админка и публичный сервис |
 | `INTERNAL_BIND`, `INTERNAL_GRPC_HOST_PORT`, `RABBITMQ_HOST_PORT` | для двух серверов | Где открыты gRPC и RabbitMQ для публичного сервиса |
 | `MSSQL_HOST`, `MSSQL_PORT`, `MSSQL_DB`, `MSSQL_USER` | — | Сервер MS SQL компании вместо контейнера и учётка |
+| `MSSQL_AUTH` | — | `sql` (по умолчанию) — логин и пароль SQL Server; `windows` — вход учёткой Windows процесса, только если Internal запущен прямо в Windows (см. [windows-dev.md](windows-dev.md)) |
 | `MSSQL_TRUST_SERVER_CERTIFICATE` | — | `true` только для самоподписанного сертификата (контейнер). Соединение шифруется всегда |
 | `MSSQL_IMAGE`, `MSSQL_PID` | — | Образ и редакция SQL Server в контейнере стенда |
 | `REDIS_PASSWORD` | да | Пароль контейнера `redis` |
@@ -406,7 +407,9 @@ docker compose --profile internal --profile public up -d
 **Свой MS SQL компании.** Администратор СУБД создаёт базу (или даёт право `CREATE DATABASE`) и учётку SQL Server
 с ролью `db_owner` в этой базе: Relayo создаёт в ней таблицы, схему `wolverine` для очередей и секционирование
 таблицы сообщений. Задайте `MSSQL_HOST`, `MSSQL_PORT`, `MSSQL_DB`, `MSSQL_USER`, `MSSQL_PASSWORD`;
-`MSSQL_TRUST_SERVER_CERTIFICATE=false`, если сертификат сервера доверенный. Контейнер `mssql` при этом не нужен:
+`MSSQL_TRUST_SERVER_CERTIFICATE=false`, если сертификат сервера доверенный. Вход учёткой Windows
+(`MSSQL_AUTH=windows`) из контейнеров Linux не работает: для этого в образе нужен Kerberos (krb5, keytab
+и обновление билета), он не настроен — в контейнерах используйте учётку SQL Server. Контейнер `mssql` при этом не нужен:
 запускайте сервисы по именам —
 `docker compose --profile internal up -d --build rabbitmq rabbitmq-init relayo-internal relayo-admin`.
 

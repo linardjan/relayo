@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <!-- Тестовый сайт для проверки виджета (п. 2.3 ТЗ). Только для разработки.
        Заодно это пример для разработчиков сайтов: как выдавать токен клиента. -->
+  <PropertyGroup>
+    <!-- В IIS — внутри рабочего процесса: тогда сайт видит настоящий порт привязки (основной сайт или зеркало). -->
+    <AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
   </ItemGroup>

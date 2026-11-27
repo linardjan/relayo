@@ -35,18 +35,7 @@ public sealed record InternalSettings(
     {
         var config = new RelayoConfig(configuration);
 
-        var database = new SqlConnectionStringBuilder
-        {
-            DataSource = $"{config.Required("MSSQL_HOST")},{config.Int("MSSQL_PORT", 1433)}",
-            InitialCatalog = config.Required("MSSQL_DB"),
-            UserID = config.Required("MSSQL_USER"),
-            Password = config.Required("MSSQL_PASSWORD"),
-            // Шифрование соединения обязательно. Самоподписанный сертификат (локальный Docker) —
-            // только с MSSQL_TRUST_SERVER_CERTIFICATE=true.
-            Encrypt = SqlConnectionEncryptOption.Mandatory,
-            TrustServerCertificate = config.Bool("MSSQL_TRUST_SERVER_CERTIFICATE", false),
-            ApplicationName = "relayo-internal",
-        }.ConnectionString;
+        var database = LoadDbConnectionString(config);
 
         var jwt = new JwtOptions(
             config.Get("JWT_ISSUER", "relayo"),
@@ -96,6 +85,41 @@ public sealed record InternalSettings(
 
         config.ThrowIfInvalid();
         return settings;
+    }
+
+    /// <summary>
+    /// Строка подключения к MS SQL. MSSQL_AUTH=sql (по умолчанию) — логин и пароль SQL Server;
+    /// MSSQL_AUTH=windows — учётка Windows, под которой запущен процесс (Integrated Security, SSPI/Kerberos),
+    /// MSSQL_USER и MSSQL_PASSWORD тогда не нужны и не используются.
+    /// </summary>
+    internal static string LoadDbConnectionString(RelayoConfig config)
+    {
+        var builder = new SqlConnectionStringBuilder
+        {
+            DataSource = $"{config.Required("MSSQL_HOST")},{config.Int("MSSQL_PORT", 1433)}",
+            InitialCatalog = config.Required("MSSQL_DB"),
+            // Шифрование соединения обязательно. Самоподписанный сертификат (локальный Docker) —
+            // только с MSSQL_TRUST_SERVER_CERTIFICATE=true.
+            Encrypt = SqlConnectionEncryptOption.Mandatory,
+            TrustServerCertificate = config.Bool("MSSQL_TRUST_SERVER_CERTIFICATE", false),
+            ApplicationName = "relayo-internal",
+        };
+
+        var auth = config.Get("MSSQL_AUTH", "sql").ToLowerInvariant();
+        switch (auth)
+        {
+            case "sql":
+                builder.UserID = config.Required("MSSQL_USER");
+                builder.Password = config.Required("MSSQL_PASSWORD");
+                break;
+            case "windows":
+                builder.IntegratedSecurity = true;
+                break;
+            default:
+                config.AddError($"MSSQL_AUTH must be sql or windows, got '{auth}'");
+                break;
+        }
+        return builder.ConnectionString;
     }
 
     /// <summary>S3 необязателен: без него не работает публикация виджетов, остальное работает.</summary>
