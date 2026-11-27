@@ -15,7 +15,7 @@
     <PackageVersion Include="MailKit" Version="5.0.0" />
 
     <!-- Временный импорт из Usedesk (MySQL) -->
-    <PackageVersion Include="MySqlConnector" Version="2.4.0" />
+    <PackageVersion Include="MySqlConnector" Version="2.6.2" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.15" />
 
     <!-- Redis: SignalR backplane, общие лимиты и блокировки нескольких экземпляров -->
