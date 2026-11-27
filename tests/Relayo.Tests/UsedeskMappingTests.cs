@@ -119,4 +119,48 @@ public class UsedeskMappingTests
     [InlineData("rgba(1, 2, 3, 0.5)", "#010203")]
     [InlineData("red", null)]
     public void Colors(string value, string? expected) => Assert.Equal(expected, UsedeskMapping.Color(value));
+
+    // MySQL Usedesk: IPv6-адрес имени может не отвечать — подключаемся по IPv4, как DBeaver.
+    [Theory]
+    [InlineData("2001:db8::1,10.0.0.5,10.0.0.6", "10.0.0.5,10.0.0.6")]
+    [InlineData("2001:db8::1", "2001:db8::1")]
+    [InlineData("", null)]
+    public void Mysql_server_addresses_prefer_ipv4(string resolved, string? expected) =>
+        Assert.Equal(expected, UsedeskSource.PreferIPv4(
+            resolved.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(System.Net.IPAddress.Parse).ToList()));
+
+    [Fact]
+    public void Groups_deleted_and_demo_are_not_imported_long_names_are_clipped()
+    {
+        UsedeskGroup Group(string name, bool deleted = false, bool demo = false) => new(1, name, deleted, demo, false, true);
+
+        Assert.Equal(("Sales", (string?)null), UsedeskMapping.Group(Group("  Sales ")));
+        Assert.Equal((null, "Deleted in Usedesk: not imported"), UsedeskMapping.Group(Group("Old", deleted: true)));
+        Assert.Equal((null, "Demo group: not imported"), UsedeskMapping.Group(Group("Demo", demo: true)));
+        Assert.Equal((null, "The group has no name"), UsedeskMapping.Group(Group(" ")));
+        Assert.Equal(AgentGroup.NameMaxLength, UsedeskMapping.Group(Group(new string('x', 150))).Name!.Length);
+    }
+
+    [Fact]
+    public void Agent_groups_are_added_to_the_existing_ones()
+    {
+        Guid sales = Guid.NewGuid(), support = Guid.NewGuid(), manual = Guid.NewGuid();
+        var groups = new Dictionary<int, Guid> { [1] = sales, [2] = support };
+        UsedeskUser User(int? group, int? defaultGroup) =>
+            new(10, "a@example.test", "A", null, null, "employee", "ru", false, true, null, group, defaultGroup);
+
+        // Новый сотрудник: обе группы, по умолчанию — default_group.
+        var set = UsedeskMapping.UserGroups(User(1, 2), groups, [], null)!.Value;
+        Assert.Equal([sales, support], set.GroupIds);
+        Assert.Equal(support, set.DefaultGroupId);
+
+        // Группа, назначенная вручную, и прежняя группа по умолчанию остаются.
+        set = UsedeskMapping.UserGroups(User(1, null), groups, [manual], manual)!.Value;
+        Assert.Equal([manual, sales], set.GroupIds);
+        Assert.Equal(manual, set.DefaultGroupId);
+
+        // Всё уже есть или группа ещё не перенесена — менять нечего.
+        Assert.Null(UsedeskMapping.UserGroups(User(1, 1), groups, [sales], sales));
+        Assert.Null(UsedeskMapping.UserGroups(User(3, null), groups, [], null));
+    }
 }

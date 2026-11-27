@@ -25,6 +25,7 @@ public enum UsedeskImportKind
     Telegram,
     WhatsApp,
     Widgets,
+    Groups,
 }
 
 /// <summary>
@@ -40,18 +41,20 @@ public sealed record UsedeskPreview(
     IReadOnlyList<UsedeskPreviewRow> Telegram,
     IReadOnlyList<UsedeskPreviewRow> WhatsApp,
     IReadOnlyList<UsedeskPreviewRow> Widgets,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<UsedeskPreviewRow> Groups);
 
-/// <param name="SiteId">Сайт для каналов и виджетов (клиенты, которые туда пишут, относятся к нему). Для пользователей не нужен.</param>
+/// <param name="SiteId">Сайт для каналов и виджетов (клиенты, которые туда пишут, относятся к нему). Для групп и пользователей не нужен.</param>
 public sealed record UsedeskImportRequest(UsedeskImportKind Kind, IReadOnlyList<int> Ids, Guid? SiteId,
     IdentificationMode? IdentificationMode = null);
 
 public sealed record UsedeskImportProblem(int Id, string Name, string Reason);
 
-public sealed record UsedeskImportResult(int Imported, IReadOnlyList<UsedeskImportProblem> Skipped);
+/// <param name="GroupsAssigned">Скольким перенесённым сотрудникам добавлены группы (после импорта групп и сотрудников).</param>
+public sealed record UsedeskImportResult(int Imported, IReadOnlyList<UsedeskImportProblem> Skipped, int GroupsAssigned = 0);
 
 /// <summary>
-/// Временный импорт настроек из Usedesk (docs/usedesk-migration.md): пользователи, почтовые каналы, Telegram-боты,
+/// Временный импорт настроек из Usedesk (docs/usedesk-migration.md): группы, пользователи, почтовые каналы, Telegram-боты,
 /// номера WhatsApp и виджеты. Создаёт их тем же кодом, что админка; повторный импорт ничего не дублирует
 /// (usedesk_id у пользователей, usedesk_channel_id у каналов).
 /// </summary>
@@ -126,6 +129,40 @@ public sealed class UsedeskImportService(
         var numbers = await Linked(db.WhatsAppChannels.Select(c => new { c.UsedeskChannelId, c.Id }).ToListAsync(ct), x => x.UsedeskChannelId, x => x.Id);
         var widgets = await Linked(db.Widgets.Select(c => new { c.UsedeskChannelId, c.Id }).ToListAsync(ct), x => x.UsedeskChannelId, x => x.Id);
         var channelName = data.Channels.ToDictionary(c => c.Id, c => c.Name);
+        var linkedGroups = await db.AgentGroups.AsNoTracking().Where(g => g.UsedeskId != null)
+            .ToDictionaryAsync(g => g.UsedeskId!.Value, g => g.Id, ct);
+        var groupNames = await db.AgentGroups.AsNoTracking().Select(g => new { g.Name, g.UsedeskId }).ToListAsync(ct);
+        var usedeskGroup = data.Groups.ToDictionary(g => g.Id);
+
+        var groupRows = data.Groups.Select(g =>
+        {
+            var (name, problem) = UsedeskMapping.Group(g);
+            var members = data.Users.Count(u => UsedeskMapping.Role(u.Role) is not null && (u.GroupId == g.Id || u.DefaultGroupId == g.Id));
+            var notes = new List<string>();
+            if (name is not null && !linkedGroups.ContainsKey(g.Id))
+            {
+                // Имя группы в Relayo уникально (без учёта регистра, как сравнивает SQL Server).
+                var twin = data.Groups.FirstOrDefault(o => o.Id < g.Id && UsedeskMapping.Group(o).Name is { } n
+                    && string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+                var existing = groupNames.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (twin is not null)
+                    problem = $"Same name as group #{twin.Id}: rename one of them in Usedesk";
+                else if (existing is { UsedeskId: { } other })
+                    problem = $"A group with this name is already linked to Usedesk group #{other}";
+                else if (existing is not null)
+                    notes.Add("A group with this name exists in Relayo: it is linked, not created again");
+                if (name != g.Name.Trim())
+                    notes.Add($"Name shortened to {AgentGroup.NameMaxLength} characters");
+            }
+            if (problem is null)
+            {
+                if (g.CustomWorkingTime)
+                    notes.Add("Own working hours are not imported");
+                if (!g.PersonalDataAccess)
+                    notes.Add("Client personal data is hidden from this group in Usedesk: Relayo has no such restriction");
+            }
+            return new UsedeskPreviewRow(g.Id, name ?? g.Name, members == 1 ? "1 agent" : $"{members} agents", g.Deleted, Get(linkedGroups, g.Id), problem, notes);
+        }).ToList();
 
         var userRows = data.Users.Select(u =>
         {
@@ -142,6 +179,19 @@ public sealed class UsedeskImportService(
                     notes.Add("No AD account: a local user without a password (set it on the agent page)");
                 if (u.Deleted || !u.Active)
                     notes.Add("Removed in Usedesk: imported blocked to keep the history");
+                // Группы сотрудника: уже перенесённые, ждущие импорта групп и те, что не переносятся (удалённые, демо).
+                var groupIds = new[] { u.GroupId, u.DefaultGroupId }.OfType<int>().Distinct().ToList();
+                string Names(IEnumerable<int> ids) => string.Join(", ", ids.Select(id => usedeskGroup.TryGetValue(id, out var g) ? g.Name : $"#{id}"));
+                var linked = groupIds.Where(linkedGroups.ContainsKey).ToList();
+                var skippedGroups = groupIds.Where(id => !linkedGroups.ContainsKey(id)
+                    && (!usedeskGroup.TryGetValue(id, out var g) || UsedeskMapping.Group(g).Problem is not null)).ToList();
+                var pending = groupIds.Except(linked).Except(skippedGroups).ToList();
+                if (linked.Count > 0)
+                    notes.Add($"Groups: {Names(linked)}");
+                if (pending.Count > 0)
+                    notes.Add($"Groups: {Names(pending)} (added when the groups are imported)");
+                if (skippedGroups.Count > 0)
+                    notes.Add($"Groups not imported (deleted, demo or missing in Usedesk): {Names(skippedGroups)}");
             }
             return new UsedeskPreviewRow(u.Id, u.Name, $"{u.Email} · {u.Role}", u.Deleted, Get(users, u.Id),
                 role is null ? "Usedesk support accounts and bots are not imported" : null, notes);
@@ -194,14 +244,14 @@ public sealed class UsedeskImportService(
                 w.ChannelId is { } c ? Get(widgets, c) : null, w.ChannelId is null ? "The widget has no Usedesk channel" : null, notes);
         }).ToList();
 
-        return new UsedeskPreview(userRows, emailRows, telegramRows, whatsAppRows, widgetRows, warnings);
+        return new UsedeskPreview(userRows, emailRows, telegramRows, whatsAppRows, widgetRows, warnings, groupRows);
     }
 
     public async Task<UsedeskImportResult> ImportAsync(UsedeskImportRequest request, CancellationToken ct)
     {
         if (request.Ids is not { Count: > 0 })
             throw new DomainException(ErrorCodes.InvalidInput, "Select what to import");
-        if (request.Kind != UsedeskImportKind.Users && request.SiteId is null)
+        if (request.Kind is not (UsedeskImportKind.Users or UsedeskImportKind.Groups) && request.SiteId is null)
             throw new DomainException(ErrorCodes.InvalidInput, "Choose the site for the imported channels");
         var data = await ReadAsync(ct);
         var ids = request.Ids.ToHashSet();
@@ -214,6 +264,9 @@ public sealed class UsedeskImportService(
             {
                 await import();
                 imported++;
+                // Каждая запись уже сохранена. Импорт «всего» — это сотни записей: без очистки каждое следующее
+                // сохранение перебирало бы все созданные раньше сущности.
+                db.ChangeTracker.Clear();
             }
             catch (Exception ex) when (ex is DomainException or DbUpdateException)
             {
@@ -224,11 +277,19 @@ public sealed class UsedeskImportService(
         }
 
         var siteId = request.SiteId ?? Guid.Empty;
+        var groupsAssigned = 0;
         switch (request.Kind)
         {
+            case UsedeskImportKind.Groups:
+                foreach (var g in data.Groups.Where(g => ids.Contains(g.Id)))
+                    await Run(g.Id, g.Name, () => ImportGroupAsync(g, data.Groups, ct));
+                // Сотрудников могли перенести раньше групп: группы добавляются им сейчас.
+                groupsAssigned = await AssignGroupsAsync(data.Users, ct);
+                break;
             case UsedeskImportKind.Users:
                 foreach (var u in data.Users.Where(u => ids.Contains(u.Id)))
                     await Run(u.Id, u.Name, () => ImportUserAsync(u, ct));
+                groupsAssigned = await AssignGroupsAsync(data.Users, ct);
                 break;
             case UsedeskImportKind.Email:
                 foreach (var c in data.Channels.Where(c => ids.Contains(c.Id) && IsMail(c)))
@@ -301,8 +362,9 @@ public sealed class UsedeskImportService(
                 throw new DomainException(ErrorCodes.InvalidInput, "Unknown import section");
         }
 
-        logger.LogInformation("Usedesk import {Kind}: imported {Imported}, skipped {Skipped}", request.Kind, imported, skipped.Count);
-        return new UsedeskImportResult(imported, skipped);
+        logger.LogInformation("Usedesk import {Kind}: imported {Imported}, skipped {Skipped}, groups assigned to {GroupsAssigned} agents",
+            request.Kind, imported, skipped.Count, groupsAssigned);
+        return new UsedeskImportResult(imported, skipped, groupsAssigned);
     }
 
     /// <summary>
@@ -343,6 +405,60 @@ public sealed class UsedeskImportService(
             user.SetAlias(alias);
         user.LinkUsedesk(u.Id);
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Группа Usedesk. Группа с тем же именем, уже заведённая в Relayo вручную, только привязывается: имя у нас уникально,
+    /// а второй такой отдел не нужен.
+    /// </summary>
+    private async Task ImportGroupAsync(UsedeskGroup g, IReadOnlyList<UsedeskGroup> all, CancellationToken ct)
+    {
+        var (name, problem) = UsedeskMapping.Group(g);
+        if (name is null)
+            throw new DomainException(ErrorCodes.InvalidInput, problem!);
+        await EnsureNewAsync(db.AgentGroups.AnyAsync(x => x.UsedeskId == g.Id, ct));
+        if (all.FirstOrDefault(o => o.Id < g.Id && string.Equals(UsedeskMapping.Group(o).Name, name, StringComparison.OrdinalIgnoreCase)) is { } twin)
+            throw new DomainException(ErrorCodes.InvalidInput, $"Same name as group #{twin.Id}: rename one of them in Usedesk");
+
+        var group = await db.AgentGroups.SingleOrDefaultAsync(x => x.Name == name, ct);
+        if (group is { UsedeskId: { } other })
+            throw new DomainException(ErrorCodes.InvalidInput, $"A group with this name is already linked to Usedesk group #{other}");
+        if (group is null)
+        {
+            group = new AgentGroup(name, time.GetUtcNow());
+            db.AgentGroups.Add(group);
+        }
+        group.LinkUsedesk(g.Id);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Добавляет перенесённым сотрудникам их группы из Usedesk, если группы уже перенесены. Только добавляет: группы,
+    /// назначенные в Relayo вручную, остаются. Возвращает, скольким сотрудникам что-то добавлено.
+    /// </summary>
+    private async Task<int> AssignGroupsAsync(IReadOnlyList<UsedeskUser> usedeskUsers, CancellationToken ct)
+    {
+        var withGroups = usedeskUsers.Where(u => u.GroupId is not null || u.DefaultGroupId is not null).ToDictionary(u => u.Id);
+        if (withGroups.Count == 0)
+            return 0;
+        var groups = await db.AgentGroups.AsNoTracking().Where(g => g.UsedeskId != null)
+            .ToDictionaryAsync(g => g.UsedeskId!.Value, g => g.Id, ct);
+        if (groups.Count == 0)
+            return 0;
+        var ids = withGroups.Keys.ToList();
+        var users = await db.Users.Where(u => u.UsedeskId != null && ids.Contains(u.UsedeskId.Value)).ToListAsync(ct);
+        var changed = 0;
+        foreach (var user in users)
+        {
+            if (UsedeskMapping.UserGroups(withGroups[user.UsedeskId!.Value], groups, user.GroupIds, user.DefaultGroupId) is { } set)
+            {
+                user.SetGroups(set.GroupIds, set.DefaultGroupId);
+                changed++;
+            }
+        }
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
+        return changed;
     }
 
     private static async Task EnsureNewAsync(Task<bool> exists)

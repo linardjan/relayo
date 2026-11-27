@@ -17,15 +17,17 @@ const db = (sql) => execFileSync('node', [path.join(__dirname, 'db.cjs'), sql], 
   const connection = { host: 'localhost', port: Number(env.TEST_USEDESK_MYSQL_PORT), database: 'usedesk', username: 'root', companyId: 7 }
   const siteId = (await call('GET', '/sites')).body[0].id
   const preview = async () => (await call('GET', '/usedesk/preview')).body
-  const links = { users: '/users', email: '/email-channels', telegram: '/telegram-bots', whatsApp: '/whatsapp-channels', widgets: '/widgets' }
+  const links = { groups: '/groups', users: '/users', email: '/email-channels', telegram: '/telegram-bots', whatsApp: '/whatsapp-channels', widgets: '/widgets' }
   // Убрать перенесённое (и оставшееся от прерванного прогона): виджеты — раньше ботов и номеров.
   const cleanup = async () => {
     const p = await preview()
     if (!p?.users) return
-    for (const key of ['widgets', 'email', 'telegram', 'whatsApp', 'users'])
+    for (const key of ['widgets', 'email', 'telegram', 'whatsApp', 'users', 'groups'])
       for (const row of p[key].filter((r) => r.importedId)) await call('DELETE', `${links[key]}/${row.importedId}`)
     // Пользователей AD API не удаляет (их убирает синхронизация) — тестовых убираем из БД. Id — из tools/usedesk-mock.
     db("DELETE FROM users WHERE usedesk_id IN (101, 102, 103) AND source = 'ActiveDirectory'")
+    // Группа «Продажи», заведённая проверкой вручную, если прогон прервался до импорта групп.
+    for (const g of (await call('GET', '/groups')).body ?? []) if (g.name === 'Продажи') await call('DELETE', `/groups/${g.id}`)
   }
 
   try {
@@ -59,6 +61,36 @@ const db = (sql) => execFileSync('node', [path.join(__dirname, 'db.cjs'), sql], 
     const again = await call('POST', '/usedesk/import', { kind: 'Users', ids: [101] })
     check('second import does not duplicate', again.body?.imported === 0 && /Already imported/.test(again.body.skipped[0]?.reason), JSON.stringify(again.body))
 
+    // Группы — после сотрудников: уже перенесённые сотрудники получают группы при импорте групп
+    const agent = async (usedeskId) => (await call('GET', '/users')).body.find((u) => u.id === p2.users.find((r) => r.id === usedeskId)?.importedId)
+    let p2 = await preview()
+    check('users imported without groups yet', users.body.groupsAssigned === 0 && (await agent(101))?.groupIds.length === 0
+      && p2.users.find((u) => u.id === 101).notes.some((n) => /Поддержка, Продажи \(added when the groups are imported\)/.test(n))
+      && p2.users.find((u) => u.id === 103).notes.some((n) => /not imported .*: Старый отдел/.test(n)), p2.users.filter((u) => u.id !== 102).map((u) => u.notes.join(' | ')).join(' || '))
+    check('preview: groups of our company only', p2.groups.map((g) => g.id).join() === '1,2,3,4,5', p2.groups.map((g) => g.id).join())
+    check('preview: deleted, demo and same-name groups are not importable',
+      /Deleted/.test(p2.groups[2].problem) && /Demo/.test(p2.groups[3].problem) && /Same name as group #1/.test(p2.groups[4].problem ?? ''),
+      p2.groups.map((g) => g.problem).join(' | '))
+    check('preview: group notes and members', p2.groups[1].details === '2 agents' && p2.groups[1].notes.some((n) => /working hours/.test(n)) && p2.groups[1].notes.some((n) => /personal data/.test(n)),
+      `${p2.groups[1].details}: ${p2.groups[1].notes.join(' | ')}`)
+    const manual = await call('POST', '/groups', { name: 'Продажи' })
+    p2 = await preview()
+    check('preview: group with the same name in Relayo will be linked', p2.groups[1].notes.some((n) => /exists in Relayo/.test(n)), p2.groups[1].notes.join(' | '))
+    const groups = await call('POST', '/usedesk/import', { kind: 'Groups', ids: [1, 2, 3, 4, 5] })
+    check('groups imported, deleted/demo/same-name skipped', groups.body?.imported === 2 && groups.body.skipped.map((x) => x.id).join() === '3,4,5' && groups.body.groupsAssigned === 2,
+      JSON.stringify(groups.body))
+    p2 = await preview()
+    check('existing group linked, not duplicated', p2.groups[1].importedId === manual.body.id
+      && (await call('GET', '/groups')).body.filter((g) => g.name === 'Продажи').length === 1, p2.groups[1].importedId)
+    const anna2 = await agent(101), boris2 = await agent(102)
+    const support = p2.groups[0].importedId, sales = p2.groups[1].importedId
+    check('agents got their Usedesk groups, default from default_group',
+      anna2.groupIds.join() === [support, sales].join() && anna2.defaultGroupId === sales && boris2.groupIds.join() === sales && boris2.defaultGroupId === sales,
+      JSON.stringify({ anna: [anna2.groupIds, anna2.defaultGroupId], boris: [boris2.groupIds, boris2.defaultGroupId] }))
+    const groupsAgain = await call('POST', '/usedesk/import', { kind: 'Groups', ids: [1] })
+    check('second group import does not duplicate or reassign', groupsAgain.body?.imported === 0 && groupsAgain.body.groupsAssigned === 0
+      && /Already imported/.test(groupsAgain.body.skipped[0]?.reason), JSON.stringify(groupsAgain.body))
+
     // Каналы
     const noSite = await call('POST', '/usedesk/import', { kind: 'Email', ids: [10] })
     check('channels need a site', noSite.status === 400, String(noSite.status))
@@ -88,7 +120,7 @@ const db = (sql) => execFileSync('node', [path.join(__dirname, 'db.cjs'), sql], 
     await cleanup()
     const forget = await call('DELETE', '/usedesk/connection')
     check('connection forgotten', forget.status === 204 && db('SELECT COUNT(*) FROM usedesk_connection') === '0')
-    const left = db('SELECT (SELECT COUNT(*) FROM users WHERE usedesk_id IS NOT NULL) + (SELECT COUNT(*) FROM widgets WHERE usedesk_channel_id IS NOT NULL) + (SELECT COUNT(*) FROM email_channels WHERE usedesk_channel_id IS NOT NULL) + (SELECT COUNT(*) FROM whatsapp_channels WHERE usedesk_channel_id IS NOT NULL)')
+    const left = db('SELECT (SELECT COUNT(*) FROM users WHERE usedesk_id IS NOT NULL) + (SELECT COUNT(*) FROM agent_groups WHERE usedesk_id IS NOT NULL) + (SELECT COUNT(*) FROM widgets WHERE usedesk_channel_id IS NOT NULL) + (SELECT COUNT(*) FROM email_channels WHERE usedesk_channel_id IS NOT NULL) + (SELECT COUNT(*) FROM whatsapp_channels WHERE usedesk_channel_id IS NOT NULL)')
     check('imported data cleaned up', left === '0', left)
   }
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED')

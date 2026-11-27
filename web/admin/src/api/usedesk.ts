@@ -24,7 +24,7 @@ export interface UsedeskConnectionInput {
   companyId: number
 }
 
-export type UsedeskImportKind = 'Users' | 'Email' | 'Telegram' | 'WhatsApp' | 'Widgets'
+export type UsedeskImportKind = 'Groups' | 'Users' | 'Email' | 'Telegram' | 'WhatsApp' | 'Widgets'
 
 export interface UsedeskPreviewRow {
   id: number
@@ -39,6 +39,7 @@ export interface UsedeskPreviewRow {
 }
 
 export interface UsedeskPreview {
+  groups: UsedeskPreviewRow[]
   users: UsedeskPreviewRow[]
   email: UsedeskPreviewRow[]
   telegram: UsedeskPreviewRow[]
@@ -50,6 +51,8 @@ export interface UsedeskPreview {
 export interface UsedeskImportResult {
   imported: number
   skipped: { id: number; name: string; reason: string }[]
+  /** Скольким перенесённым сотрудникам добавлены группы. */
+  groupsAssigned: number
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) })

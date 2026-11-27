@@ -3,7 +3,7 @@ import { DeleteOutlined, EditOutlined, SearchOutlined, UserOutlined } from '@ant
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import type { Role } from '../../api/client'
 import { settingsApi, type AgentGroup, type OperatorStatus, type StaffUser } from '../../api/settings'
 import { Page } from '../../layout/Page'
@@ -22,7 +22,9 @@ export function AgentsPage() {
   const queryClient = useQueryClient()
   const users = useQuery({ queryKey: ['users'], queryFn: settingsApi.users })
   const groups = useQuery({ queryKey: ['groups'], queryFn: settingsApi.groups })
-  const [tab, setTab] = useState<TabKey>('all')
+  // ?tab=groups — ссылка на группы (например, со страницы импорта из Usedesk).
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<TabKey>(params.get('tab') === 'groups' ? 'groups' : 'all')
   const [search, setSearch] = useState('')
   const [groupModal, setGroupModal] = useState<AgentGroup | 'new' | null>(null)
 

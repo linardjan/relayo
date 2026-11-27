@@ -1,12 +1,20 @@
 using System.Data.Common;
+using System.Net;
+using System.Net.Sockets;
 using MySqlConnector;
 using Relayo.Core;
 
 namespace Relayo.Internal.Usedesk;
 
-/// <summary>Сотрудник Usedesk (users). <paramref name="Guid"/> — objectGUID из users_guid_migration, если нашёлся.</summary>
+/// <summary>
+/// Сотрудник Usedesk (users). <paramref name="Guid"/> — objectGUID из users_guid_migration, если нашёлся;
+/// <paramref name="GroupId"/> и <paramref name="DefaultGroupId"/> — user_groups.id из user_group_id и default_group.
+/// </summary>
 public sealed record UsedeskUser(int Id, string Email, string Name, string? Position, string? Phone, string Role, string Lang,
-    bool Deleted, bool Active, string? Guid);
+    bool Deleted, bool Active, string? Guid, int? GroupId = null, int? DefaultGroupId = null);
+
+/// <summary>Группа сотрудников Usedesk (user_groups).</summary>
+public sealed record UsedeskGroup(int Id, string Name, bool Deleted, bool Demo, bool CustomWorkingTime, bool PersonalDataAccess);
 
 /// <summary>Канал Usedesk (company_email_channels): общая таблица каналов всех видов, а у почты — ещё и подключения.</summary>
 public sealed record UsedeskChannel(
@@ -72,7 +80,8 @@ public sealed record UsedeskSnapshot(
     IReadOnlyList<UsedeskPact> Pact,
     IReadOnlyList<UsedeskWidget> Widgets,
     IReadOnlyList<UsedeskMessenger> Messengers,
-    bool GuidTableFound);
+    bool GuidTableFound,
+    IReadOnlyList<UsedeskGroup> Groups);
 
 public sealed record UsedeskLogin(string Host, int Port, string Database, string Username, string Password, int CompanyId);
 
@@ -84,14 +93,19 @@ public sealed class UsedeskSource
 {
     private const int TableNotFound = 1146;
 
-    public static MySqlConnection Connect(UsedeskLogin login) => new(new MySqlConnectionStringBuilder
+    private static MySqlConnection Connect(UsedeskLogin login, string server) => new(new MySqlConnectionStringBuilder
     {
-        Server = login.Host,
+        Server = server,
+        // Несколько адресов (см. ServerAddressesAsync) — по порядку, а не по кругу.
+        LoadBalance = MySqlLoadBalance.FailOver,
         Port = (uint)login.Port,
         Database = login.Database,
         UserID = login.Username,
         Password = login.Password,
         SslMode = MySqlSslMode.Preferred,
+        // MySQL 8 (caching_sha2_password) без TLS принимает пароль только зашифрованным открытым ключом RSA
+        // сервера — разрешаем его запросить, как allowPublicKeyRetrieval в DBeaver. С TLS ключ не запрашивается.
+        AllowPublicKeyRetrieval = true,
         ConnectionTimeout = 10,
         DefaultCommandTimeout = 60,
         // Нулевые даты MySQL (0000-00-00) читаются как DateTime.MinValue, а не ошибкой.
@@ -120,10 +134,17 @@ public sealed class UsedeskSource
         var company = login.CompanyId;
 
         var users = await ListAsync(db, """
-            SELECT id, email, name, position, phone, role, lang, deleted, status
+            SELECT id, email, name, position, phone, role, lang, deleted, status, user_group_id, default_group
             FROM users WHERE company_id = @company ORDER BY id
             """, company, r => new UsedeskUser(Int(r, "id"), Str(r, "email") ?? "", Str(r, "name") ?? "", Str(r, "position"),
-            Str(r, "phone"), Str(r, "role") ?? "", Str(r, "lang") ?? "ru", Bool(r, "deleted"), Bool(r, "status"), null), ct);
+            Str(r, "phone"), Str(r, "role") ?? "", Str(r, "lang") ?? "ru", Bool(r, "deleted"), Bool(r, "status"), null,
+            GroupRef(r, "user_group_id"), GroupRef(r, "default_group")), ct);
+
+        var groups = await ListAsync(db, """
+            SELECT id, name, deleted, is_demo, custom_working_time, client_personal_data_access
+            FROM user_groups WHERE company_id = @company ORDER BY id
+            """, company, r => new UsedeskGroup(Int(r, "id"), Str(r, "name") ?? "", Bool(r, "deleted"), Bool(r, "is_demo"),
+            Bool(r, "custom_working_time"), Bool(r, "client_personal_data_access")), ct);
 
         // objectGUID из LDAP — в отдельной таблице: в users.guid его очистили (docs/usedesk-migration.md, 2.1).
         var guidTableFound = true;
@@ -180,12 +201,39 @@ public sealed class UsedeskSource
             """, company, r => new UsedeskMessenger(IntOrNull(r, "channel_id"), Str(r, "active_json"), Str(r, "facebook_url"),
             Str(r, "vk_url"), Str(r, "viber_url"), Str(r, "tg_url"), Str(r, "ok_url"), Str(r, "insta_url")), ct);
 
-        return new UsedeskSnapshot(users, channels, telegram, pact, widgets, messengers, guidTableFound);
+        return new UsedeskSnapshot(users, channels, telegram, pact, widgets, messengers, guidTableFound, groups);
+    }
+
+    /// <summary>
+    /// Адреса сервера для подключения: IPv4, если они есть. .NET пробует адреса в порядке DNS, обычно сначала IPv6;
+    /// если IPv6-адрес у имени есть, но по нему сервер не отвечает, всё время подключения уходит на него
+    /// (Connect Timeout expired), хотя DBeaver и другие Java-клиенты, предпочитающие IPv4, подключаются.
+    /// </summary>
+    private static async Task<string> ServerAddressesAsync(string host, CancellationToken ct)
+    {
+        if (IPAddress.TryParse(host, out _))
+            return host;
+        try
+        {
+            return PreferIPv4(await Dns.GetHostAddressesAsync(host, ct)) ?? host;
+        }
+        catch (SocketException)
+        {
+            // Имя не разрешилось — пусть ошибку сообщит драйвер, как раньше.
+            return host;
+        }
+    }
+
+    internal static string? PreferIPv4(IReadOnlyList<IPAddress> addresses)
+    {
+        var ipv4 = addresses.Where(a => a.AddressFamily == AddressFamily.InterNetwork).ToList();
+        var chosen = ipv4.Count > 0 ? ipv4 : addresses;
+        return chosen.Count == 0 ? null : string.Join(",", chosen.Select(a => a.ToString()));
     }
 
     private static async Task<MySqlConnection> OpenAsync(UsedeskLogin login, CancellationToken ct)
     {
-        var db = Connect(login);
+        var db = Connect(login, await ServerAddressesAsync(login.Host, ct));
         try
         {
             await db.OpenAsync(ct);
@@ -226,6 +274,9 @@ public sealed class UsedeskSource
     private static int? IntOrNull(DbDataReader r, string column) => r[column] is DBNull ? null : Convert.ToInt32(r[column]);
 
     private static int Int(DbDataReader r, string column) => IntOrNull(r, column) ?? 0;
+
+    /// <summary>Ссылка на группу: 0 в Usedesk — «без группы».</summary>
+    private static int? GroupRef(DbDataReader r, string column) => IntOrNull(r, column) is > 0 and var id ? id : null;
 
     /// <summary>tinyint(1) приходит как bool, int — как число: оба сводятся к «не ноль».</summary>
     private static bool Bool(DbDataReader r, string column) => r[column] switch

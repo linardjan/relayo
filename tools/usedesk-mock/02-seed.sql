@@ -4,13 +4,23 @@
 SET SESSION sql_mode = '';
 SET NAMES utf8mb4;
 
-INSERT INTO users (id, email, password, name, position, phone, role, company_id, lang, status, deleted, use_signature) VALUES
-  (101, 'anna.ivanova@example.test', 'x', 'Анна', 'Старший оператор', '+7 900 000-00-01', 'admin', 7, 'ru', 1, 0, ''),
-  (102, 'boris.petrov@example.test', 'x', 'Борис', NULL, NULL, 'employee', 7, 'ru', 1, 1, ''),
-  (103, 'vera.smirnova@example.test', 'x', 'Вера', 'Оператор', NULL, 'employee', 7, 'en', 1, 0, ''),
-  (104, 'support@usedesk.example', 'x', 'Usedesk Support', NULL, NULL, 'support', 7, 'ru', 1, 0, ''),
-  (105, 'bot@example.test', 'x', 'Бот', NULL, NULL, 'bot', 7, 'ru', 1, 0, ''),
-  (201, 'other@example.test', 'x', 'Чужой', NULL, NULL, 'admin', 8, 'ru', 1, 0, '');
+-- Группы: 1 и 2 — живые (у 2 своё рабочее время и закрытые персональные данные), 3 — удалённая, 4 — демо,
+-- 5 — то же имя, что у 1, другим регистром (у нас имя уникально без учёта регистра), 9 — чужой компании.
+INSERT INTO user_groups (id, name, company_id, deleted, deleted_at, custom_working_time, is_demo, client_personal_data_access) VALUES
+  (1, 'Поддержка', 7, 0, '2000-01-01', 0, 0, 1),
+  (2, 'Продажи', 7, 0, '2000-01-01', 1, 0, 0),
+  (3, 'Старый отдел', 7, 1, '2024-05-01', 0, 0, 1),
+  (4, 'Демо', 7, 0, '2000-01-01', 0, 1, 1),
+  (5, 'поддержка', 7, 0, '2000-01-01', 0, 0, 1),
+  (9, 'Чужая группа', 8, 0, '2000-01-01', 0, 0, 1);
+
+INSERT INTO users (id, email, password, name, position, phone, role, company_id, lang, status, deleted, use_signature, user_group_id, default_group) VALUES
+  (101, 'anna.ivanova@example.test', 'x', 'Анна', 'Старший оператор', '+7 900 000-00-01', 'admin', 7, 'ru', 1, 0, '', 1, 2),
+  (102, 'boris.petrov@example.test', 'x', 'Борис', NULL, NULL, 'employee', 7, 'ru', 1, 1, '', 2, NULL),
+  (103, 'vera.smirnova@example.test', 'x', 'Вера', 'Оператор', NULL, 'employee', 7, 'en', 1, 0, '', 3, 0),
+  (104, 'support@usedesk.example', 'x', 'Usedesk Support', NULL, NULL, 'support', 7, 'ru', 1, 0, '', NULL, NULL),
+  (105, 'bot@example.test', 'x', 'Бот', NULL, NULL, 'bot', 7, 'ru', 1, 0, '', NULL, NULL),
+  (201, 'other@example.test', 'x', 'Чужой', NULL, NULL, 'admin', 8, 'ru', 1, 0, '', 9, 9);
 
 INSERT INTO users_guid_migration (original_id, duplicate_guid) VALUES
   (101, '3f2504e0-4f89-11d3-9a0c-0305e82c3301');

@@ -24,6 +24,35 @@ public static partial class UsedeskMapping
         _ => null,
     };
 
+    /// <summary>Группа сотрудников: имя в Relayo (до 100 символов) или почему не переносится (docs/usedesk-migration.md, 2.11).</summary>
+    public static (string? Name, string? Problem) Group(UsedeskGroup g)
+    {
+        if (g.Deleted)
+            return (null, "Deleted in Usedesk: not imported");
+        if (g.Demo)
+            return (null, "Demo group: not imported");
+        var name = Clip(g.Name, AgentGroup.NameMaxLength);
+        return name.Length == 0 ? (null, "The group has no name") : (name, null);
+    }
+
+    /// <summary>
+    /// Группы сотрудника в Relayo по его группам в Usedesk: к тем, что у него уже есть, добавляются перенесённые
+    /// (user_group_id и default_group); группа по умолчанию — прежняя, иначе default_group, иначе user_group_id.
+    /// Не перенесённые ещё группы пропускаются: их допишет импорт групп. null — менять нечего.
+    /// </summary>
+    public static (List<Guid> GroupIds, Guid? DefaultGroupId)? UserGroups(UsedeskUser u, IReadOnlyDictionary<int, Guid> groups,
+        IReadOnlyList<Guid> current, Guid? currentDefault)
+    {
+        Guid? Find(int? id) => id is { } key && groups.TryGetValue(key, out var g) ? g : null;
+        var main = Find(u.GroupId);
+        var preferred = Find(u.DefaultGroupId);
+        var added = new[] { main, preferred }.OfType<Guid>().Where(g => !current.Contains(g)).Distinct().ToList();
+        var defaultGroup = currentDefault ?? preferred ?? main;
+        if (added.Count == 0 && defaultGroup == currentDefault)
+            return null;
+        return ([.. current, .. added], defaultGroup);
+    }
+
     /// <summary>
     /// objectGUID из users_guid_migration: строкой (3f2504e0-…) или base64 байтов, как их отдаёт LDAP.
     /// Байты objectGUID в AD — в том же порядке, что у .NET <see cref="Guid(byte[])"/>.
